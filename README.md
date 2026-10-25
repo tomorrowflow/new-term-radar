@@ -67,7 +67,7 @@ Purple, tagged NEW: what 0.3 to 0.5 added (⑥ revenue, ⑦ Reddit asks, ⑧ sel
 | ④ Search Console | Queries your site got impressions for, for the first time (fresh data) | your own Google token | free |
 | ⑤ Review | Each lead checked in Google Trends 14 days later, against its own baseline; hit rate and days ahead per signal | AIsa key | $0.0012 per search variant |
 | Keyword table | For the day's new names: the generic search terms behind them (what people do with the new thing), each sized, checked for room on page one, and given a decision | AIsa key; [GoAnyAPI](https://goanyapi.com) key optional | about $0.18 a day for 5 names, $0.30 with GoAnyAPI |
-| Name judge | A small model scores every term: the name of one specific thing, or a common word? | AIsa key | a fraction of a cent per run |
+| Name judge | A small model scores every term: the name of one specific thing, or a common word? A name widely known for over a year ("tensorflow") is held under the cut; a new version of it ("obs studio 33") is not | AIsa key | a fraction of a cent per run |
 
 Prices are what AIsa charged in October 2026. With the example config (35 X accounts read three times a day, the keyword table for 5 names a day) a month costs about $15: $10 for the X reads, $5 for the keyword table. Read fewer accounts, or read them once a day, and it drops in proportion.
 
@@ -260,7 +260,7 @@ and from `sources`:
 | `topics` | Name and regex: each topic gets its own section listing the leads, repos and queries that match |
 | `known_terms` | Terms you already have a page for, or never want reported. A lead that contains one, or is contained in one, is marked and not kept for review |
 | `stop_words` | Everyday words of your field, added to the built-in list (which is tuned for AI tooling) |
-| `judge` | `model` (any chat model on AIsa) and `min_score` (0.5) |
+| `judge` | `model` (any chat model on AIsa) and `min_score` (0.5; old names score at most 0.4, so keep it above that) |
 | `hn` | `min_points` (50), `show_min_points` (15, for Show HN), `window_hours` (48), `vocab_days` (60) |
 | `reddit` | `subreddits`, `per_request` (subreddits per feed request, 10), `limit` (100), `seed_pages` (pages of the month's top read on the first run, 5), `vocab_days` (60) |
 | `breakout` | `window_days`, `min_stars`, `velocity_min` (stars a day), `delta_min` (stars since yesterday), `categories` (name to `topics`, `min_stars`, `velocity_min`, `delta_min`, `gain_min` (stars since yesterday it must also have); default `ai` and `self-hosted`) |

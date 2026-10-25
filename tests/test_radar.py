@@ -505,8 +505,17 @@ def test_gsc_is_off_without_a_site(cfg):
 
 def test_judge_parses_scores_and_drops_what_it_cannot_use():
     answer = 'Here you go:\n[{"i": 0, "score": 0.9}, {"i": 1, "score": "0.1"}, {"i": 7, "score": 1}, {"i": 2, "score": 3}, {"x": 1}]'
-    assert judge.parse(answer, 3) == {0: 0.9, 1: 0.1}
+    assert judge.parse(answer, 3) == {0: (0.9, False), 1: (0.1, False)}
     assert judge.parse("sorry", 3) == {}
+
+
+def test_judge_caps_an_old_name_below_the_cut_and_keeps_a_new_version(cfg, monkeypatch):
+    rows = [{"term": "tensorflow", "examples": []}, {"term": "obs studio 33", "examples": []}]
+    monkeypatch.setattr(judge.aisa, "chat", lambda *a: '[{"i": 0, "score": 1.0, "old": true}, {"i": 1, "score": 0.95, "old": false}]')
+    judge.score(rows, "m")
+    assert rows[0]["old"] and rows[0]["named"] < cfg["judge"]["min_score"]
+    assert rows[1]["named"] == 0.95 and "old" not in rows[1]
+    assert [r["term"] for r in report.named(cfg, rows)] == ["obs studio 33"]
 
 
 def test_judge_scores_rows_in_chunks(monkeypatch):

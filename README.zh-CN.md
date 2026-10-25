@@ -67,7 +67,7 @@
 | ④ Search Console | 你的站第一次获得曝光的查询词（用新鲜数据） | 你自己的 Google 授权 | 免费 |
 | ⑤ 复盘 | 每条线索 14 天后去 Google Trends 核对，和它自己的基线比；按信号统计命中率和提前天数 | AIsa key | 每个搜索写法 $0.0012 |
 | 新词表 | 针对当天的新名字:找出它背后的通用搜索词(大家拿这个新东西做什么),逐个估算规模、看首页还有没有位置,并给出决策 | AIsa key；[GoAnyAPI](https://goanyapi.com) key 可选 | 5 个名字约每天 $0.18，加上 GoAnyAPI 约 $0.30 |
-| 名字判断 | 小模型给每个词打分：是某个具体东西的名字，还是普通词？ | AIsa key | 每次不到一美分 |
+| 名字判断 | 小模型给每个词打分：是某个具体东西的名字，还是普通词？已广为人知一年以上的名字（「tensorflow」）压到线下；它的新版本（「obs studio 33」）不算 | AIsa key | 每次不到一美分 |
 
 价格是 2026 年 10 月 AIsa 的实际收费。按示例配置（35 个 X 账号、每天读三次，新词表每天读 5 个名字），一个月约 $15：读 X 约 $10，新词表约 $5。少读几个账号或者每天只读一次，费用按比例下降。
 
@@ -255,7 +255,7 @@ python -m radar daily --skip x,hf --out report.md  # 其余全部，每天一次
 | `topics` | 名称和正则：每个主题单独一节，列出匹配的线索、仓库和查询 |
 | `known_terms` | 你已经有页面的词，或者永远不想看到的词。包含它或被它包含的线索会被标出，不进入复盘 |
 | `stop_words` | 你这个领域的日常用词，追加到内置列表（内置列表是按 AI 工具领域调的） |
-| `judge` | `model`（AIsa 上任意对话模型）和 `min_score`（默认 0.5） |
+| `judge` | `model`（AIsa 上任意对话模型）和 `min_score`（默认 0.5；老名字最多 0.4 分，所以要高于它） |
 | `hn` | `min_points`（默认 50）、`show_min_points`（Show HN，默认 15）、`window_hours`（48）、`vocab_days`（60） |
 | `reddit` | `subreddits`、`per_request`（每次请求合并的版块数，10）、`limit`（100）、`seed_pages`（首次运行取当月热门的页数，5）、`vocab_days`（60） |
 | `breakout` | `window_days`、`min_stars`、`velocity_min`（每天涨星）、`delta_min`（比昨天多的星）、`categories`（分类名对应 `topics`、`min_stars`、`velocity_min`、`delta_min`、`gain_min`（还必须比昨天至少多的星）；默认 `ai` 和 `self-hosted`） |
