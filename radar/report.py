@@ -38,7 +38,23 @@ def leads(cfg: dict, blocks: dict[str, dict]) -> tuple[list[dict], dict]:
     # Earliest signal first among equals: a name the labs said today beats a sitemap echo.
     rows.sort(key=lambda r: (-(r.get("named", 0) >= cut), -len(r["kinds"]),
                              min(KINDS.index(k) for k in r["kinds"]), opportunity.RANK[r["format"]], -r.get("named", 0)))
-    return rows, status
+    return _take_turns(rows, cut), status
+
+
+def _take_turns(rows: list[dict], cut: float) -> list[dict]:
+    """The single-signal names one signal at a time, each in its own order, so the first SHOWN
+    (the table, the store, the keyword table) hold every signal: sorted by signal alone, the
+    50 Reddit names of a day pushed all of GitHub and the sitemaps out. Names several signals
+    found stay first; common words stay last."""
+    names = [r for r in rows if r.get("named", 1.0) >= cut]
+    rest = [r for r in rows if r.get("named", 1.0) < cut]
+    queues: dict[str, list[dict]] = {}
+    for r in (r for r in names if len(r["kinds"]) == 1):
+        queues.setdefault(r["kinds"][0], []).append(r)
+    turns = []
+    while any(queues.values()):
+        turns += [q.pop(0) for q in queues.values() if q]
+    return [r for r in names if len(r["kinds"]) > 1] + turns + rest
 
 
 def named(cfg: dict, lead: list[dict]) -> list[dict]:

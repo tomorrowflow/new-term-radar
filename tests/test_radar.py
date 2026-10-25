@@ -557,6 +557,18 @@ def test_leads_merge_a_term_seen_by_two_signals(cfg, monkeypatch):
     assert rows[1]["signals"] == ["③ sitemaps: 3 places (×4.0)"]
 
 
+def test_a_busy_signal_does_not_push_the_others_out_of_the_top(cfg, monkeypatch):
+    _no_judge(monkeypatch)
+    blocks = {"reddit": {"terms": [{"term": f"r{i}", "recent": 1, "note": "Reddit"} for i in range(50)]},
+              "breakout": {"terms": [{"term": f"b{i}", "recent": 1, "note": "GitHub"} for i in range(17)]},
+              "hn": {"terms": [{"term": "both", "recent": 1, "note": "HN"}]},
+              "sitemap": {"terms": [{"term": "both", "recent": 3, "lift": 2.0}]}}
+    rows, _ = report.leads(cfg, blocks)
+    top = [r["term"] for r in report.to_record(cfg, rows)]
+    assert top[0] == "both" and top[1:5] == ["r0", "b0", "r1", "b1"]
+    assert len(top) == report.SHOWN and sum(t.startswith("b") for t in top) == 10
+
+
 def test_names_lead_and_known_terms_are_not_recorded(cfg, monkeypatch):
     cfg["known_terms"] = ["Remotion"]
 
