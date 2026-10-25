@@ -2,10 +2,12 @@
 the review's verdict, the reports. Network calls are not exercised here."""
 import json
 import re
+import urllib.parse
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from radar import __main__ as cli
+from radar import snap
 from radar import breakout, config, gsc, i18n, judge, new_sites, notify, report, review, sitemaps, store
 from radar.sources import base_name, novel_names
 from radar.terms import names
@@ -101,8 +103,8 @@ def test_hf_reads_trending_models_and_spaces_and_merges_a_model_with_its_demo(tm
 
 # --- ② breakout: one repo taking off --------------------------------------------------
 
-def _repo(name, stars, days_old):
-    created = (NOW - timedelta(days=days_old)).isoformat().replace("+00:00", "Z")
+def _repo(name, stars, days_old, now=NOW):
+    created = (now - timedelta(days=days_old)).isoformat().replace("+00:00", "Z")
     return {"full_name": name, "stargazers_count": stars, "created_at": created, "description": ""}
 
 
@@ -120,6 +122,59 @@ def test_breakout_variants_include_handle_and_display_name():
     row = {"owner": "Niko1221", "name": "Strata"}
     assert breakout.variants(row, "Niko") == ["strata", "niko1221 strata", "niko strata"]
     assert breakout.variants(row, "") == ["strata", "niko1221 strata"]
+
+
+def _fresh(name, stars, days_old):
+    return _repo(name, stars, days_old, datetime.now(timezone.utc))
+
+
+def _fake_github(monkeypatch, by_topic, general):
+    def get(path):
+        if path.startswith("/users/"):
+            return {"name": ""}
+        q = urllib.parse.unquote(path.split("q=")[1].split("&")[0])
+        return {"items": by_topic[q.split("topic:")[1].split(",")[0]] if "topic:" in q else general}
+    monkeypatch.setattr(breakout, "_get", get)
+
+
+def test_breakouts_extracts_a_category_with_its_own_bars(cfg, tmp_path, monkeypatch):
+    nas = _fresh("a/homebox", 150, 5)
+    _fake_github(monkeypatch, {"ai": [], "self-hosted": [nas, _fresh("a/quiet", 40, 12)]}, [])
+    out = breakout.breakouts(cfg, tmp_path)
+    assert out["repos"] == []
+    assert [r["repo"] for r in out["categories"]["self-hosted"]["repos"]] == ["a/homebox"]
+    assert out["categories"]["ai"] == {"searched": 0, "repos": []}
+    assert out["categories"]["self-hosted"]["searched"] == 2
+    assert out["terms"][0]["note"].startswith("GitHub breakout (self-hosted) a/homebox ★150")
+
+
+def test_a_repo_breaking_out_in_two_categories_is_one_term_and_snapshots_every_fresh(cfg, tmp_path, monkeypatch):
+    hot = _fresh("n/strata", 7000, 9)
+    _fake_github(monkeypatch, {"ai": [hot, _fresh("a/agentkit", 300, 4)], "self-hosted": [_fresh("a/homebox", 150, 5)]}, [hot])
+    out = breakout.breakouts(cfg, tmp_path)
+    assert [r["repo"] for r in out["repos"]] == ["n/strata"]
+    assert [r["repo"] for r in out["categories"]["ai"]["repos"]] == ["n/strata", "a/agentkit"]
+    assert sorted(x["repo"] for x in out["terms"]) == ["a/agentkit", "a/homebox", "n/strata"]
+    assert "(ai)" not in next(x for x in out["terms"] if x["repo"] == "n/strata")["note"]
+    assert snap.load(tmp_path / "gh_stars.json.gz") == {"n/strata": 7000, "a/agentkit": 300, "a/homebox": 150}
+    again = breakout.breakouts(cfg, tmp_path)
+    assert again["terms"] == [] and not again["first_run"]
+    assert again["categories"]["ai"]["repos"][1]["delta"] == 0
+
+
+def test_report_renders_a_table_per_category(cfg):
+    row = {"repo": "a/homebox", "stars": 150, "velocity": 30, "delta": None, "age_days": 5, "description": "nas", "new": True}
+    bo = {"repos": [], "categories": {"ai": {"searched": 0, "repos": []}, "self-hosted": {"searched": 1, "repos": [row]}}}
+    text = "\n".join(report._breakout_lines(bo, cfg))
+    assert "self-hosted (topics: self-hosted, selfhosted" in text and "[a/homebox](https://github.com/a/homebox)" in text
+    assert "#### ② ai" in text and "None (no breakout repos)" in text
+
+
+def test_topic_lines_match_category_repos_once(cfg):
+    cfg["topics"] = {"NAS": r"nas"}
+    row = {"repo": "a/homebox", "stars": 150, "velocity": 30, "description": "nas box"}
+    blocks = {"breakout": {"repos": [row], "categories": {"self-hosted": {"repos": [row]}}}}
+    assert "\n".join(report.topic_lines(cfg, [], blocks, {})).count("a/homebox") == 2   # url + label of one line
 
 
 # --- ③ sitemaps: one entry in 17 languages counts once ---------------------------------

@@ -10,6 +10,11 @@ pages. A repo breaks out when it averages `velocity_min` stars a day since birth
 gained `delta_min` since the last run's snapshot. For new breakouts the owner's display
 name is fetched too, because people search it ("niko strata", not "niko1221").
 
+Each configured category (breakout.categories: "ai", "self-hosted") repeats the search
+restricted to its topics, with its own bars, because a self-hosted repo never reaches
+200 stars a day. They share one star snapshot, and a repo breaking out in several
+categories is one lead term.
+
 A repo stays above the bar for days. It becomes a lead term once, the day it first
 breaks out (remembered for FLAGGED_DAYS); the report's table lists all of them.
 A GitHub token (GITHUB_TOKEN) is optional and only raises the rate limit.
@@ -78,39 +83,60 @@ def variants(row: dict, display: str) -> list[str]:
     return out
 
 
-def breakouts(cfg: dict, state: Path) -> dict:
-    c = cfg["breakout"]
-    since = (date.today() - timedelta(days=c["window_days"])).isoformat()
-    q = urllib.parse.quote(f"created:>={since} stars:>={c['min_stars']}")
+def _search(query: str) -> list[dict]:
+    q = urllib.parse.quote(query)
     repos: list[dict] = []
     for page in range(1, PAGES + 1):
         items = _get(f"/search/repositories?q={q}&sort=stars&order=desc&per_page=100&page={page}").get("items", [])
         repos += items
         if len(items) < 100:
             break
+    return repos
+
+
+def breakouts(cfg: dict, state: Path) -> dict:
+    c = cfg["breakout"]
+    since = (date.today() - timedelta(days=c["window_days"])).isoformat()
+    base = f"created:>={since}"
+    table = [("general", f"{base} stars:>={c['min_stars']}", c)] + [
+        (name, f"{base} stars:>={cat['min_stars']} topic:{','.join(cat['topics'])}", cat)
+        for name, cat in (c.get("categories") or {}).items()]
     path = state / "gh_stars.json.gz"
     before = snap.load(path)
-    rows = score(repos, before, datetime.now(timezone.utc), c["velocity_min"], c["delta_min"])
-    if repos:
-        snap.save(path, {r["full_name"]: r["stargazers_count"] for r in repos})
+    now = datetime.now(timezone.utc)
+    stars: dict[str, int] = {}
+    found: dict[str, dict] = {}
+    for name, query, bars in table:
+        repos = _search(query)
+        stars.update({r["full_name"]: r["stargazers_count"] for r in repos})
+        found[name] = {"searched": len(repos), "repos": score(repos, before, now, bars["velocity_min"], bars["delta_min"])}
+    if stars:
+        snap.save(path, stars)
     flagged_path = state / "gh_flagged.json.gz"
     flagged: dict[str, str] = snap.load(flagged_path) or {}
     today = date.today().isoformat()
-    for row in rows:
-        row["new"] = row["repo"] not in flagged
-        flagged.setdefault(row["repo"], today)
+    terms, seen = [], set()
+    for name, block in found.items():
+        for row in block["repos"]:
+            row["new"] = row["repo"] not in flagged
+            if not row["new"] or row["repo"] in seen:
+                continue
+            seen.add(row["repo"])
+            try:
+                display = _get(f"/users/{row['owner']}").get("name") or ""
+            except OSError:
+                display = ""
+            row["variants"] = variants(row, display)
+            gain = t("note_breakout_gain", delta=row["delta"]) if row["delta"] is not None else ""
+            label = "" if name == "general" else t("note_breakout_cat", category=name)
+            terms.append({"term": row["variants"][0], "recent": 1, "variants": row["variants"], "repo": row["repo"],
+                          "note": t("note_breakout", repo=row["repo"], stars=row["stars"], velocity=row["velocity"], gain=gain, cat=label),
+                          "examples": [f"{row['repo']}: {row['description']}"]})
+    for block in found.values():
+        for row in block["repos"]:
+            flagged.setdefault(row["repo"], today)
     cutoff = (date.today() - timedelta(days=FLAGGED_DAYS)).isoformat()
     snap.save(flagged_path, {k: v for k, v in flagged.items() if v >= cutoff})
-    terms = []
-    for row in (r for r in rows if r["new"]):
-        try:
-            display = _get(f"/users/{row['owner']}").get("name") or ""
-        except OSError:
-            display = ""
-        row["variants"] = variants(row, display)
-        gain = t("note_breakout_gain", delta=row["delta"]) if row["delta"] is not None else ""
-        terms.append({"term": row["variants"][0], "recent": 1, "variants": row["variants"], "repo": row["repo"],
-                      "note": t("note_breakout", repo=row["repo"], stars=row["stars"], velocity=row["velocity"], gain=gain),
-                      "examples": [f"{row['repo']}: {row['description']}"]})
-    return {"searched": len(repos), "first_run": before is None, "repos": rows, "terms": terms,
-            "window_days": c["window_days"]}
+    general = found.pop("general")
+    return {"searched": general["searched"], "first_run": before is None, "repos": general["repos"], "terms": terms,
+            "window_days": c["window_days"], "categories": found}

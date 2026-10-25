@@ -81,7 +81,9 @@ def topic_lines(cfg: dict, lead: list[dict], b: dict[str, dict], gsc: dict) -> l
     for name, pattern in cfg["topics"].items():
         pat = re.compile(pattern, re.I)
         hits = [r for r in named(cfg, lead) if pat.search(r["term"] + " " + " ".join(r["examples"][:2]))]
-        repos = [r for r in b["breakout"].get("repos") or [] if pat.search(r["repo"] + " " + r["description"])]
+        bo = b["breakout"]
+        pool = {r["repo"]: r for r in [*(bo.get("repos") or []), *(r for c in (bo.get("categories") or {}).values() for r in c["repos"])]}
+        repos = [r for r in pool.values() if pat.search(r["repo"] + " " + r["description"])]
         queries = [q for q in gsc.get("queries") or [] if pat.search(q["query"])]
         lines += ["", t("topic_h", name=name), ""]
         if not (hits or repos or queries):
@@ -93,15 +95,25 @@ def topic_lines(cfg: dict, lead: list[dict], b: dict[str, dict], gsc: dict) -> l
     return lines
 
 
-def _breakout_lines(bo: dict, cfg: dict) -> list[str]:
-    lines = ["", t("breakout_h", days=cfg["breakout"]["window_days"]), ""]
-    repos = bo.get("repos") or []
+def _breakout_table(repos: list[dict], none: str) -> list[str]:
     if not repos:
-        return lines + [t("recent_none", why=_state(bo, t("no_breakouts")))]
-    lines += [t("breakout_cols"), "|---|---|---|---|---|---|"]
-    return lines + [f"| {'🆕 ' if r.get('new') else ''}[{r['repo']}](https://github.com/{r['repo']}) | {r['stars']} | {r['velocity']} | "
-                    f"{'+' + str(r['delta']) if r['delta'] is not None else t('dash')} | {r['age_days']} | "
-                    f"{_cell(r['description'][:60])} |" for r in repos]
+        return [none]
+    return [t("breakout_cols"), "|---|---|---|---|---|---|"] + [
+        f"| {'🆕 ' if r.get('new') else ''}[{r['repo']}](https://github.com/{r['repo']}) | {r['stars']} | {r['velocity']} | "
+        f"{'+' + str(r['delta']) if r['delta'] is not None else t('dash')} | {r['age_days']} | "
+        f"{_cell(r['description'][:60])} |" for r in repos]
+
+
+def _breakout_lines(bo: dict, cfg: dict) -> list[str]:
+    c = cfg["breakout"]
+    lines = ["", t("breakout_h", days=c["window_days"]), ""]
+    lines += _breakout_table(bo.get("repos") or [], t("recent_none", why=_state(bo, t("no_breakouts"))))
+    for name, block in (bo.get("categories") or {}).items():
+        bars = (c.get("categories") or {}).get(name, {})
+        lines += ["", t("breakout_cat_h", name=name, topics=", ".join(bars.get("topics", [])), min_stars=bars.get("min_stars"),
+                        velocity=bars.get("velocity_min"), delta=bars.get("delta_min")), ""]
+        lines += _breakout_table(block["repos"], t("recent_none", why=t("no_breakouts")))
+    return lines
 
 
 def _new_site_lines(ns: dict, cfg: dict) -> list[str]:
@@ -251,7 +263,7 @@ def _status_lines(b: dict[str, dict], extra: dict[str, dict]) -> list[str]:
     if not hf.get("skipped"):
         ok = "" if hf.get("error") else t("st_hf_ok", models=hf["models"], spaces=hf.get("spaces", 0)) + (t("st_first") if hf.get("first_run") else "")
         lines.append(t("st_hf", state=_state(hf, ok)))
-    ok = "" if bo.get("error") or bo.get("skipped") else t("st_breakout_ok", n=bo["searched"]) + \
+    ok = "" if bo.get("error") or bo.get("skipped") else t("st_breakout_ok", n=bo["searched"] + sum(c["searched"] for c in (bo.get("categories") or {}).values())) + \
         (t("st_breakout_first") if bo.get("first_run") else "")
     lines.append(t("st_breakout", state=_state(bo, ok)))
     sl = b.get("seller", {"skipped": True})
