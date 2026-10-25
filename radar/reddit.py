@@ -24,7 +24,7 @@ from .terms import _drop_nested
 FEED = "https://www.reddit.com/r/{subs}/top/.rss"
 PACE = 62
 MAX_WAIT = 90
-TOP = 25
+TOP = 50          # before the judge: most top-post title words are not names, so leave it room
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _sleep = time.sleep
 _last_request = 0.0
