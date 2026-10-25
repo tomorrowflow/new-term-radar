@@ -126,7 +126,17 @@ def test_hn_show_hn_titles_give_the_product_name():
     assert title_names("Show HN: Farol \u2013 a risk map of a pull request") == ["farol"]
     assert title_names("Show HN: Corgi, a helpful {agent, terminal} multiplexer") == ["corgi"]
     assert title_names("Show HN: Duls \u2013 A bit of du, a bit of ls") == ["duls"]
-    assert "speedcrunch" in title_names("SpeedCrunch 1.1")
+    assert title_names("SpeedCrunch 1.1") == ["speedcrunch 1.1"]
+
+
+def test_title_names_trim_headline_filler_and_keep_one_name_per_overlap():
+    from radar.hn import title_names
+    assert title_names("Five Qwen3.8-27B models match Fable 5 Using GVS5H Harness") == ["gvs5h harness", "qwen3.8-27b"]
+    assert title_names("Run Deep-Live-Cam in 1-click (no Python, no setup, 100% local & free)") == ["deep-live-cam", "1-click"]
+    assert title_names("My MOSS Character Lora Training Results") == ["moss character lora"]
+    assert title_names("Kimi K3.1 Pro") == ["kimi k3.1 pro"]
+    assert title_names("Asked ChatGPT: How many dumplings are on the table?") == ["chatgpt"]
+    assert title_names("TIL there’s Anthropic(India) before Anthropic (Claude)") == []
 
 
 def test_hn_reports_a_new_name_once_and_not_one_in_the_vocabulary(tmp_path, monkeypatch):
@@ -153,7 +163,7 @@ def test_hn_first_run_seeds_from_the_sixty_day_pull_and_still_reports(tmp_path, 
     out = hn.hn_new(config_hn(), tmp_path)
     assert out["seeded"] > 0 and not out["first_run"]
     terms = {r["term"] for r in out["terms"]}
-    assert "cerebras deploys trillionparam" in terms and not {"corgi", "duls"} & terms
+    assert "trillionparam" in terms and not {"corgi", "duls"} & terms
     assert len([c for c in calls if c[0] == "story" and c[1] < time.time() - 49 * 3600]) >= 6
     assert set(snap.load(tmp_path / "hn_vocab.json.gz")) >= {"corgi", "duls"}
 

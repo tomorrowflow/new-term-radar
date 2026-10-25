@@ -30,6 +30,20 @@ TOP = 25
 CHUNK_DAYS = 10     # Algolia returns at most 1000 hits a query; 10 days above 50 points is about 660
 _SHOW = re.compile(r"^\s*show hn\s*:\s*(.*)$", re.I)
 _PRODUCT_END = re.compile(r" [–—-] |:|,")
+# A headline capitalises every word, so names() runs across ordinary ones ("Using GVS5H Harness").
+# These words are never part of a name: a phrase holding one inside is not a name, and they are
+# trimmed off its ends, as STOP words are.
+FILLER = set("""
+i i'm im my me we our us he she they their his her who what why how when where which there here
+just finally now still also even only really very so too not no yes
+is was were been being do does did done has had having will would could should may might must
+ask asked asks say says said tell told let lets try tried trying running ran get gets got going gone
+use uses deploy deploys deployed cite cites take takes hit hits become becomes
+launch launches launched release releases released introducing introduces announcing announced meet
+show shows showing see seen look looking want wants need needs give gives keep
+one two three four five six seven eight nine ten first second third last next every some many few
+til psa eli5 update thanks please help lol wtf omg
+""".split())
 
 
 def _hits(tag: str, min_points: int, after: int, before: int) -> list[dict]:
@@ -43,14 +57,29 @@ def _hits(tag: str, min_points: int, after: int, before: int) -> list[dict]:
 
 def title_names(title: str) -> list[str]:
     """Show HN: the product name before the first dash, colon or comma, when it is 1 to 4 words.
-    Otherwise the strong names of the title. At most PER_POST, longest first."""
+    Otherwise the strong names of the title, FILLER and STOP words trimmed off their ends, and of
+    two that overlap only the longer ("kimi k3.1 pro", not also "kimi k3.1"). At most PER_POST,
+    longest first."""
     m = _SHOW.match(title)
     if m:
         title = m.group(1)
         prefix = _PRODUCT_END.split(title, 1)[0].strip().lower()
         if 1 <= len(prefix.split()) <= 4 and len(prefix) >= MIN_LEN and not all(w in STOP for w in prefix.split()):
             return [prefix]
-    return sorted(names(title, strong=True), key=lambda n: (-len(n), n))[:PER_POST]
+    found = set()
+    for phrase in names(title, strong=True):
+        words = phrase.split()
+        if any(w in FILLER for w in words[1:-1]):
+            continue
+        while words and (words[0] in FILLER or words[0] in STOP):
+            words.pop(0)
+        while words and (words[-1] in FILLER or words[-1] in STOP):
+            words.pop()
+        core = " ".join(words)
+        if len(core) >= MIN_LEN and not core.replace(".", "").isdigit():
+            found.add(core)
+    kept = [n for n in found if not any(o != n and f" {n} " in f" {o} " for o in found)]
+    return sorted(kept, key=lambda n: (-len(n), n))[:PER_POST]
 
 
 def _stories(tag: str, min_points: int, after: int, before: int) -> list[dict]:
