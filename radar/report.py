@@ -10,7 +10,7 @@ SHOWN = 20
 OTHER_TERMS = 15
 POSTS_SHOWN = 3   # posts quoted in full per term
 # signal key -> label key, in the order of how early the signal comes
-KINDS = ["x", "hf", "breakout", "sitemap", "newsite", "revenue", "ask", "seller", "usecase", "cosearch", "watch"]
+KINDS = ["x", "hf", "hn", "breakout", "sitemap", "newsite", "revenue", "ask", "seller", "usecase", "cosearch", "watch"]
 
 
 def leads(cfg: dict, blocks: dict[str, dict]) -> tuple[list[dict], dict]:
@@ -263,6 +263,10 @@ def _status_lines(b: dict[str, dict], extra: dict[str, dict]) -> list[str]:
     if not hf.get("skipped"):
         ok = "" if hf.get("error") else t("st_hf_ok", models=hf["models"], spaces=hf.get("spaces", 0)) + (t("st_first") if hf.get("first_run") else "")
         lines.append(t("st_hf", state=_state(hf, ok)))
+    hn = b.get("hn", {"skipped": True})
+    if not hn.get("skipped"):
+        ok = "" if hn.get("error") else t("st_hn_ok", stories=hn["stories"]) + (t("st_hn_seeded", seeded=hn["seeded"]) if hn.get("seeded") else "")
+        lines.append(t("st_hn", state=_state(hn, ok)))
     ok = "" if bo.get("error") or bo.get("skipped") else t("st_breakout_ok", n=bo["searched"] + sum(c["searched"] for c in (bo.get("categories") or {}).values())) + \
         (t("st_breakout_first") if bo.get("first_run") else "")
     lines.append(t("st_breakout", state=_state(bo, ok)))

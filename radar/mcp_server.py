@@ -92,7 +92,7 @@ def _run(command: str, skip: list[str]) -> dict:
 async def run_radar(command: str = "sources", skip: list[str] | None = None) -> dict:
     """Run the radar once and return its report. command: "sources" (X and Hugging Face only;
     no report when nothing is new) or "daily" (every signal, the keyword table, the 14-day
-    review). skip: any of x, hf, breakout, sitemaps, newsites, gsc, review, judge, usecases.
+    review). skip: any of x, hf, hn, breakout, sitemaps, newsites, gsc, review, judge, usecases.
 
     Paid and slow: `sources` reads every X account in config.json (about 10 seconds and $0.003
     each); `daily` takes 5 to 15 minutes. It updates the same state the scheduled runs use, so

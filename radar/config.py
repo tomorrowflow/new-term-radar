@@ -24,6 +24,7 @@ DEFAULTS = {
         "self-hosted": {"topics": ["self-hosted", "selfhosted", "homelab", "self-hosting"],
                         "min_stars": 30, "velocity_min": 15, "delta_min": 40, "gain_min": 5}}},
     "new_sites": {"queries": {"ai": "%ai%"}, "weekday": 0, "window_days": 90, "min_etv": 1000, "min_keywords": 20},
+    "hn": {"min_points": 50, "show_min_points": 15, "window_hours": 48, "vocab_days": 60},
     "review": {"after_days": 14, "per_day": 5},
     "usecases": {"per_day": 5, "model": "claude-sonnet-4-6", "min_volume": 50, "trends_max": 10, "recheck_days": 3,
                  "location_code": 2840, "benchmark": "gpts", "min_daily": 300, "related": True, "related_geo": "US",

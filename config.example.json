@@ -33,6 +33,7 @@
   "stop_words": [],
 
   "judge": {"model": "gpt-4.1-mini", "min_score": 0.5},
+  "hn": {"min_points": 50, "show_min_points": 15, "window_hours": 48, "vocab_days": 60},
   "breakout": {"window_days": 14, "min_stars": 300, "velocity_min": 200, "delta_min": 400,
                "categories": {
                  "ai": {"topics": ["ai", "llm", "agents", "ai-agents", "ai-agent", "machine-learning", "deep-learning", "generative-ai", "mcp", "rag"],

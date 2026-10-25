@@ -2,6 +2,7 @@
 the review's verdict, the reports. Network calls are not exercised here."""
 import json
 import re
+import time
 import urllib.parse
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -99,6 +100,90 @@ def test_hf_reads_trending_models_and_spaces_and_merges_a_model_with_its_demo(tm
     assert set(terms) == {"krea 2", "lightonocr 3"} and not later["first_run"]
     assert terms["krea 2"]["examples"] == ["krea/Krea-2 (text-to-image, ♥900)", "krea/Krea-2-demo (gradio, ♥300)"]
     assert terms["lightonocr 3"]["note"] == "Hugging Face Spaces: new at #2"
+
+
+# --- ① Hacker News: names new to HN ----------------------------------------------------------
+
+def _hn_hit(id_, title, points, hours_ago):
+    return {"objectID": id_, "title": title, "points": points, "created_at_i": int(time.time() - hours_ago * 3600)}
+
+
+def _fake_hn(monkeypatch, window, old=()):
+    """window: (tag, hit) pairs inside the last 48 hours; old: story hits older than that."""
+    import radar.hn as hn
+    calls = []
+
+    def hits(tag, min_points, after, before):
+        calls.append((tag, after, before))
+        pool = window if after > time.time() - 49 * 3600 else old
+        return [h for g, h in pool if g == tag and h["points"] >= min_points]
+    monkeypatch.setattr(hn, "_hits", hits)
+    return calls
+
+
+def test_hn_show_hn_titles_give_the_product_name():
+    from radar.hn import title_names
+    assert title_names("Show HN: Farol \u2013 a risk map of a pull request") == ["farol"]
+    assert title_names("Show HN: Corgi, a helpful {agent, terminal} multiplexer") == ["corgi"]
+    assert title_names("Show HN: Duls \u2013 A bit of du, a bit of ls") == ["duls"]
+    assert "speedcrunch" in title_names("SpeedCrunch 1.1")
+
+
+def test_hn_reports_a_new_name_once_and_not_one_in_the_vocabulary(tmp_path, monkeypatch):
+    import radar.hn as hn
+    snap.save(tmp_path / "hn_vocab.json.gz", {"duls": date.today().isoformat()})
+    _fake_hn(monkeypatch, [("show_hn", _hn_hit("1", "Show HN: Duls \u2013 A bit of du", 40, 5)),
+                           ("show_hn", _hn_hit("2", "Show HN: Farol \u2013 a risk map", 134, 3)),
+                           ("story", _hn_hit("2", "Show HN: Farol \u2013 a risk map", 134, 3))])
+    out = hn.hn_new(config_hn(), tmp_path)
+    assert [r["term"] for r in out["terms"]] == ["farol"] and out["stories"] == 2 and out["seeded"] == 0
+    row = out["terms"][0]
+    assert row["note"] == "Hacker News: Show HN, 134 points" and row["recent"] == 1
+    assert row["posts"] == [{"account": "HN", "text": "Show HN: Farol \u2013 a risk map",
+                             "url": "https://news.ycombinator.com/item?id=2", "likes": 134}]
+    assert hn.hn_new(config_hn(), tmp_path)["terms"] == []
+
+
+def test_hn_first_run_seeds_from_the_sixty_day_pull_and_still_reports(tmp_path, monkeypatch):
+    import radar.hn as hn
+    calls = _fake_hn(monkeypatch, [("story", _hn_hit("9", "Cerebras Deploys TrillionParam", 500, 6)),
+                                   ("story", _hn_hit("8", "Show HN: Corgi, a multiplexer", 60, 6))],
+                     old=[("story", _hn_hit("7", "Show HN: Corgi, a multiplexer", 80, 24 * 20)),
+                          ("story", _hn_hit("6", "Show HN: Duls \u2013 du and ls", 80, 24 * 30))])
+    out = hn.hn_new(config_hn(), tmp_path)
+    assert out["seeded"] > 0 and not out["first_run"]
+    terms = {r["term"] for r in out["terms"]}
+    assert "cerebras deploys trillionparam" in terms and not {"corgi", "duls"} & terms
+    assert len([c for c in calls if c[0] == "story" and c[1] < time.time() - 49 * 3600]) >= 6
+    assert set(snap.load(tmp_path / "hn_vocab.json.gz")) >= {"corgi", "duls"}
+
+
+def test_hn_seed_failure_raises_and_saves_nothing(tmp_path, monkeypatch):
+    import radar.hn as hn
+
+    def boom(*a):
+        raise OSError("algolia down")
+    monkeypatch.setattr(hn, "_hits", boom)
+    try:
+        hn.hn_new(config_hn(), tmp_path)
+        assert False, "should raise"
+    except OSError:
+        pass
+    assert not (tmp_path / "hn_vocab.json.gz").exists()
+
+
+def test_hn_below_bar_show_hn_adds_nothing_to_the_vocabulary(tmp_path, monkeypatch):
+    import radar.hn as hn
+    snap.save(tmp_path / "hn_vocab.json.gz", {})
+    _fake_hn(monkeypatch, [("show_hn", _hn_hit("1", "Show HN: Quill \u2013 a pen", 5, 4))])
+    assert hn.hn_new(config_hn(), tmp_path)["terms"] == []
+    assert "quill" not in snap.load(tmp_path / "hn_vocab.json.gz")
+    _fake_hn(monkeypatch, [("show_hn", _hn_hit("1", "Show HN: Quill \u2013 a pen", 30, 4))])
+    assert [r["term"] for r in hn.hn_new(config_hn(), tmp_path)["terms"]] == ["quill"]
+
+
+def config_hn():
+    return {"hn": config.DEFAULTS["hn"]}
 
 
 # --- ② breakout: one repo taking off --------------------------------------------------
@@ -454,13 +539,13 @@ def test_sources_run_reports_and_keeps_a_new_name(tmp_path, monkeypatch):
 def test_daily_run_writes_a_report_when_every_signal_is_down(tmp_path, monkeypatch):
     def down(*a, **k):
         raise OSError("network is down")
-    for mod, fn in ((cli.sources, "x_new"), (cli.sources, "hf_new"), (cli.breakout, "breakouts"), (cli.sitemaps, "diff")):
+    for mod, fn in ((cli.sources, "x_new"), (cli.sources, "hf_new"), (cli.hn, "hn_new"), (cli.breakout, "breakouts"), (cli.sitemaps, "diff")):
         monkeypatch.setattr(mod, fn, down)
     out = tmp_path / "report.md"
     assert cli.main(["daily", "--config", str(_write_config(tmp_path)), "--state", str(tmp_path / "s"), "--out", str(out),
                      "--skip", "newsites,review"]) == 0
     text = out.read_text()
-    assert text.count("network is down") >= 4 and out.with_suffix(".json").exists()
+    assert text.count("network is down") >= 5 and out.with_suffix(".json").exists()
 
 
 def test_daily_report_in_chinese(tmp_path, monkeypatch):
@@ -469,7 +554,7 @@ def test_daily_report_in_chinese(tmp_path, monkeypatch):
         {"repo": "Niko1221/Strata", "stars": 7734, "velocity": 859, "delta": 600, "age_days": 9.0, "description": "Qwen3.8", "new": True}]})
     out = tmp_path / "report.md"
     cli.main(["daily", "--config", str(_write_config(tmp_path, lang="zh")), "--state", str(tmp_path / "s"), "--out", str(out),
-              "--skip", "x,hf,sitemaps,newsites,review"])
+              "--skip", "x,hf,hn,sitemaps,newsites,review"])
     text = out.read_text()
     assert "## 新词雷达" in text and "🆕 [Niko1221/Strata]" in text and "| +600 |" in text
 
