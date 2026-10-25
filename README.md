@@ -335,6 +335,10 @@ Without uv: `pip install "new-term-radar[mcp]"`, then `"command": "new-term-rada
 
 Point `RADAR_STATE` at the directory your scheduled runs write to and `recent_leads` shows their leads. The same two commands exist on the command line: `python -m radar keywords "name" …` and `python -m radar leads`.
 
+## Run it in Docker (for OpenClaw and other remote agents)
+
+`docker compose up -d` runs the radar behind a small HTTP API with a bearer token, and can also run the daily schedule. The skill in `openclaw/skills/new-term-radar-remote` lets an OpenClaw instance use it. To set it up, read [docs/docker-openclaw.md](docs/docker-openclaw.md).
+
 ## Run it on GitHub Actions
 
 `.github/workflows/radar.yml` runs `sources` every 8 hours and `daily` once a day, keeps the state in the Actions cache, and writes each report to the run summary. It is off until you opt in:

@@ -1,0 +1,15 @@
+# The radar as an HTTP API for agents such as OpenClaw. See docs/docker-openclaw.md.
+#   cp .env.example .env    # then fill in the keys and a token
+#   docker compose up -d --build
+services:
+  radar:
+    build: .
+    image: new-term-radar:local
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data          # config.json, state/radar.db, the snapshots and reports/
+    ports:
+      # Reachable from this machine only. To reach it from OpenClaw on another host,
+      # change to "8787:8787" and keep the token secret, or put both on one Docker network.
+      - "127.0.0.1:8787:8787"

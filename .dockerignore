@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+state
+data
+tests
+docs
+*.md
+!config.example.json
+config.json
+.env
+gsc_*.json
+__pycache__
