@@ -56,7 +56,7 @@ Purple, tagged NEW: what 0.3 to 0.5 added (⑥ revenue, ⑦ Reddit asks, ⑧ sel
 |---|---|---|---|
 | ① X | Names the accounts in your list used for the first time in 60 days | AIsa key | $0.003 per account per run |
 | ① Hugging Face | Models and Spaces (the demos people try) new to the trending top 50; quantised copies and a model's own demo grouped under the base name | nothing | free |
-| ② GitHub breakout | A repo under 14 days old averaging 200+ stars a day, or +400 since yesterday; also per category, `ai` and `self-hosted`, each with lower bars (a self-hosted repo never hits 200 a day); adds the search variants people use ("niko strata") | nothing (a GitHub token raises the rate limit) | free |
+| ② GitHub breakout | A repo under 14 days old averaging 200+ stars a day, or +400 since yesterday; also per category, `ai` and `self-hosted`, each with lower bars (a self-hosted repo never hits 200 a day) and a minimum gain since yesterday, so they list repos growing now; adds the search variants people use ("niko strata") | nothing (a GitHub token raises the rate limit) | free |
 | ③ Sitemaps | Words that several new URLs on a site share and its older URLs rarely carried. The example config watches eight AI tool directories (toolify, aixploria, ai-bot.cn, opentools, dang.ai, clipfly, aitoptools, futurepedia) and four MCP and skill directories | the sitemaps you list | free |
 | ③ New sites | Domains registered and first indexed in the last 90 days that already rank for 20+ keywords | AIsa key | about $0.13 per query, weekly |
 | ⑦ Asks | What people ask for on Reddit ("is there an AI tool that…", twelve phrasings): a model keeps the requests and complaints an AI tool could answer and writes each job as people would search it; jobs with searches get the page-one check | AIsa key | about $0.12 a week |
@@ -259,7 +259,7 @@ and from `sources`:
 | `known_terms` | Terms you already have a page for, or never want reported. A lead that contains one, or is contained in one, is marked and not kept for review |
 | `stop_words` | Everyday words of your field, added to the built-in list (which is tuned for AI tooling) |
 | `judge` | `model` (any chat model on AIsa) and `min_score` (0.5) |
-| `breakout` | `window_days`, `min_stars`, `velocity_min` (stars a day), `delta_min` (stars since yesterday), `categories` (name to `topics`, `min_stars`, `velocity_min`, `delta_min`; default `ai` and `self-hosted`) |
+| `breakout` | `window_days`, `min_stars`, `velocity_min` (stars a day), `delta_min` (stars since yesterday), `categories` (name to `topics`, `min_stars`, `velocity_min`, `delta_min`, `gain_min` (stars since yesterday it must also have); default `ai` and `self-hosted`) |
 | `new_sites` | `queries`: a name and a SQL LIKE pattern on the domain (`"%ai%"`), one paid query each; `weekday` (0 = Monday) |
 | `review` | `after_days` (14) and `per_day` (5 leads a day) |
 | `usecases` | The keyword table. `per_day` (names read a day, 0 = off), `model`, `benchmark` (the keyword sizes are compared with), `min_volume` (monthly searches a phrase needs), `min_daily` (searches a day for "prioritize"), `recheck_days` (3), `related` (use related queries when `GOANYAPI_API_KEY` is set), `related_geo` (`US`), `country_trends` (read the bigger rows' curves from that country), `country_min_volume` (1000) and `country_max` (8) |

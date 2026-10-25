@@ -111,7 +111,7 @@ def _breakout_lines(bo: dict, cfg: dict) -> list[str]:
     for name, block in (bo.get("categories") or {}).items():
         bars = (c.get("categories") or {}).get(name, {})
         lines += ["", t("breakout_cat_h", name=name, topics=", ".join(bars.get("topics", [])), min_stars=bars.get("min_stars"),
-                        velocity=bars.get("velocity_min"), delta=bars.get("delta_min")), ""]
+                        velocity=bars.get("velocity_min"), delta=bars.get("delta_min"), gain=bars.get("gain_min", 0)), ""]
         lines += _breakout_table(block["repos"], t("recent_none", why=t("no_breakouts")))
     return lines
 

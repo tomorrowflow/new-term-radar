@@ -12,7 +12,8 @@ name is fetched too, because people search it ("niko strata", not "niko1221").
 
 Each configured category (breakout.categories: "ai", "self-hosted") repeats the search
 restricted to its topics, with its own bars, because a self-hosted repo never reaches
-200 stars a day. They share one star snapshot, and a repo breaking out in several
+200 stars a day. A category also needs `gain_min` stars since the last run, so it lists
+repos growing now rather than ones still riding a launch-week average. They share one star snapshot, and a repo breaking out in several
 categories is one lead term.
 
 A repo stays above the bar for days. It becomes a lead term once, the day it first
@@ -53,8 +54,12 @@ def repo_term(name: str) -> str:
 
 
 def score(repos: list[dict], before: dict[str, int] | None, now: datetime,
-          velocity_min: int = 200, delta_min: int = 400) -> list[dict]:
-    """Repos that break out, fastest first. `repos` items are GitHub search results."""
+          velocity_min: int = 200, delta_min: int = 400, gain_min: int = 0) -> list[dict]:
+    """Repos that break out, fastest first. `repos` items are GitHub search results.
+
+    `gain_min` also requires that many stars since the last snapshot, so a repo coasting
+    on its launch-week average drops out. A repo missing from the snapshot passes only
+    when under two days old, since then its stars are the recent gain."""
     out = []
     for r in repos:
         created = datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
@@ -63,6 +68,8 @@ def score(repos: list[dict], before: dict[str, int] | None, now: datetime,
         velocity = stars / age
         delta = stars - before[r["full_name"]] if before and r["full_name"] in before else None
         if velocity < velocity_min and (delta is None or delta < delta_min):
+            continue
+        if gain_min and (age >= 2 if delta is None else delta < gain_min):
             continue
         owner, name = r["full_name"].split("/", 1)
         out.append({"repo": r["full_name"], "owner": owner, "name": name, "stars": stars,
@@ -109,7 +116,7 @@ def breakouts(cfg: dict, state: Path) -> dict:
     for name, query, bars in table:
         repos = _search(query)
         stars.update({r["full_name"]: r["stargazers_count"] for r in repos})
-        found[name] = {"searched": len(repos), "repos": score(repos, before, now, bars["velocity_min"], bars["delta_min"])}
+        found[name] = {"searched": len(repos), "repos": score(repos, before, now, bars["velocity_min"], bars["delta_min"], bars.get("gain_min", 0))}
     if stars:
         snap.save(path, stars)
     flagged_path = state / "gh_flagged.json.gz"

@@ -118,6 +118,12 @@ def test_breakout_flags_a_jump_since_yesterday_even_when_the_average_is_low():
     assert rows and rows[0]["delta"] == 600
 
 
+def test_breakout_gain_min_drops_a_repo_coasting_on_its_average():
+    repos = [_repo("a/coasting", 2000, 10), _repo("a/climbing", 2000, 10), _repo("a/unseen", 2000, 10), _repo("a/newborn", 300, 1.5)]
+    rows = breakout.score(repos, {"a/coasting": 1995, "a/climbing": 1950}, NOW, 50, 100, gain_min=20)
+    assert sorted(r["repo"] for r in rows) == ["a/climbing", "a/newborn"]
+
+
 def test_breakout_variants_include_handle_and_display_name():
     row = {"owner": "Niko1221", "name": "Strata"}
     assert breakout.variants(row, "Niko") == ["strata", "niko1221 strata", "niko strata"]
@@ -138,7 +144,7 @@ def _fake_github(monkeypatch, by_topic, general):
 
 
 def test_breakouts_extracts_a_category_with_its_own_bars(cfg, tmp_path, monkeypatch):
-    nas = _fresh("a/homebox", 150, 5)
+    nas = _fresh("a/homebox", 150, 1.5)
     _fake_github(monkeypatch, {"ai": [], "self-hosted": [nas, _fresh("a/quiet", 40, 12)]}, [])
     out = breakout.breakouts(cfg, tmp_path)
     assert out["repos"] == []
@@ -149,8 +155,8 @@ def test_breakouts_extracts_a_category_with_its_own_bars(cfg, tmp_path, monkeypa
 
 
 def test_a_repo_breaking_out_in_two_categories_is_one_term_and_snapshots_every_fresh(cfg, tmp_path, monkeypatch):
-    hot = _fresh("n/strata", 7000, 9)
-    _fake_github(monkeypatch, {"ai": [hot, _fresh("a/agentkit", 300, 4)], "self-hosted": [_fresh("a/homebox", 150, 5)]}, [hot])
+    hot = _fresh("n/strata", 7000, 1.5)
+    _fake_github(monkeypatch, {"ai": [hot, _fresh("a/agentkit", 300, 1.5)], "self-hosted": [_fresh("a/homebox", 150, 1.5)]}, [hot])
     out = breakout.breakouts(cfg, tmp_path)
     assert [r["repo"] for r in out["repos"]] == ["n/strata"]
     assert [r["repo"] for r in out["categories"]["ai"]["repos"]] == ["n/strata", "a/agentkit"]
@@ -159,7 +165,8 @@ def test_a_repo_breaking_out_in_two_categories_is_one_term_and_snapshots_every_f
     assert snap.load(tmp_path / "gh_stars.json.gz") == {"n/strata": 7000, "a/agentkit": 300, "a/homebox": 150}
     again = breakout.breakouts(cfg, tmp_path)
     assert again["terms"] == [] and not again["first_run"]
-    assert again["categories"]["ai"]["repos"][1]["delta"] == 0
+    assert [r["repo"] for r in again["repos"]] == ["n/strata"]
+    assert again["categories"]["ai"]["repos"] == []
 
 
 def test_report_renders_a_table_per_category(cfg):

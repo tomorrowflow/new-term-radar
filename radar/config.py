@@ -20,9 +20,9 @@ DEFAULTS = {
     "judge": {"model": "gpt-4.1-mini", "min_score": 0.5},
     "breakout": {"window_days": 14, "min_stars": 300, "velocity_min": 200, "delta_min": 400, "categories": {
         "ai": {"topics": ["ai", "llm", "agents", "ai-agents", "ai-agent", "machine-learning", "deep-learning",
-                          "generative-ai", "mcp", "rag"], "min_stars": 100, "velocity_min": 50, "delta_min": 100},
+                          "generative-ai", "mcp", "rag"], "min_stars": 100, "velocity_min": 50, "delta_min": 100, "gain_min": 20},
         "self-hosted": {"topics": ["self-hosted", "selfhosted", "homelab", "self-hosting"],
-                        "min_stars": 30, "velocity_min": 15, "delta_min": 40}}},
+                        "min_stars": 30, "velocity_min": 15, "delta_min": 40, "gain_min": 5}}},
     "new_sites": {"queries": {"ai": "%ai%"}, "weekday": 0, "window_days": 90, "min_etv": 1000, "min_keywords": 20},
     "review": {"after_days": 14, "per_day": 5},
     "usecases": {"per_day": 5, "model": "claude-sonnet-4-6", "min_volume": 50, "trends_max": 10, "recheck_days": 3,
