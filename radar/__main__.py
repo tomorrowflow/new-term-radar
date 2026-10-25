@@ -7,6 +7,7 @@ Signals:
   ① x         names the accounts you follow said for the first time (AIsa)
   ① hf        models new to Hugging Face's trending top 50
   ① hn        names new to Hacker News stories and Show HN (daily only; no key)
+  ① reddit    names new to the day's top Reddit posts of your subreddits (daily only; no key)
   ② breakout  one new GitHub repo taking off on its own
   ③ sitemaps  pages other sites added since the last run
   ③ newsites  domains registered in the last 90 days that already rank (weekly; AIsa)
@@ -43,10 +44,10 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from . import asks, breakout, config, gsc, hn, new_sites, notify, pains, report, review, revenue, seller_history, sellers, sitemaps, sources, store, usecases
+from . import asks, breakout, config, gsc, hn, new_sites, notify, pains, reddit, report, review, revenue, seller_history, sellers, sitemaps, sources, store, usecases
 from .i18n import t
 
-SKIPPABLE = {"x", "hf", "hn", "breakout", "sitemaps", "newsites", "revenue", "asks", "sellers", "gsc", "review", "judge", "usecases", "tutorials"}
+SKIPPABLE = {"x", "hf", "hn", "reddit", "breakout", "sitemaps", "newsites", "revenue", "asks", "sellers", "gsc", "review", "judge", "usecases", "tutorials"}
 
 
 def run(fn, skip: bool = False) -> dict:
@@ -87,6 +88,7 @@ def cmd_daily(args, cfg: dict, state: Path) -> int:
         "x": run(lambda: sources.x_new(cfg, state), "x" in args.skip),
         "hf": run(lambda: sources.hf_new(cfg, state), "hf" in args.skip),
         "hn": run(lambda: hn.hn_new(cfg, state), "hn" in args.skip),
+        "reddit": run(lambda: reddit.reddit_new(cfg, state), "reddit" in args.skip),
         "breakout": run(lambda: breakout.breakouts(cfg, state), "breakout" in args.skip),
         "sitemap": run(lambda: sitemaps.diff(cfg, state), "sitemaps" in args.skip),
         "newsite": run(lambda: new_sites.new_sites(cfg, state), "newsites" in args.skip or not weekly),

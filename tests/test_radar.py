@@ -186,6 +186,150 @@ def config_hn():
     return {"hn": config.DEFAULTS["hn"]}
 
 
+# --- ① Reddit: names new to the day's top posts ----------------------------------------------
+
+def _atom(entries):
+    body = "".join(
+        f'<entry><title>{title}</title><id>t3_{id_}</id><link href="https://www.reddit.com/r/{sub}/comments/{id_}/x/"/>'
+        f'<published>{published}T10:00:00+00:00</published><category term="{sub}"/></entry>'
+        for id_, sub, title, published in entries)
+    return f'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">{body}</feed>'.encode()
+
+
+def config_reddit(**over):
+    return {"reddit": {**config.DEFAULTS["reddit"], **over}}
+
+
+def _fake_reddit(monkeypatch, feed):
+    import radar.reddit as rd
+    urls, sleeps = [], []
+
+    def fetch(url):
+        urls.append(url)
+        return feed(url)
+    monkeypatch.setattr(rd, "_fetch", fetch)
+    monkeypatch.setattr(rd, "_sleep", sleeps.append)
+    return urls, sleeps
+
+
+def test_reddit_reports_a_name_with_its_subreddit_and_rank_once(tmp_path, monkeypatch):
+    import radar.reddit as rd
+    snap.save(tmp_path / "reddit_vocab.json.gz", {"quillnet": date.today().isoformat()})
+    day = _atom([("a1", "ClaudeAI", "QuillNet released today", "2026-10-25"),
+                 ("a2", "LocalLLaMA", "Nanbeige4.3 33B on Hugging Face", "2026-10-25"),
+                 ("a3", "selfhosted", "TREK 5.0 travel planner", "2026-10-25")])
+    urls, _ = _fake_reddit(monkeypatch, lambda url: day)
+    out = rd.reddit_new(config_reddit(), tmp_path)
+    assert "quillnet" not in {r["term"] for r in out["terms"]} and out["posts"] == 3 and out["seeded"] == 0
+    row = next(r for r in out["terms"] if "nanbeige" in r["term"])
+    assert row["note"] == "Reddit r/LocalLLaMA, #2 in today's top" and row["recent"] == 1
+    assert row["posts"] == [{"account": "r/LocalLLaMA", "text": "Nanbeige4.3 33B on Hugging Face",
+                             "url": "https://www.reddit.com/r/LocalLLaMA/comments/a2/x/", "likes": 0}]
+    assert len(urls) == 1 and "t=day" in urls[0] and "LocalLLaMA+singularity" in urls[0]
+    assert rd.reddit_new(config_reddit(), tmp_path)["terms"] == []
+
+
+def test_reddit_splits_subreddits_into_groups_of_per_request(tmp_path, monkeypatch):
+    import radar.reddit as rd
+    snap.save(tmp_path / "reddit_vocab.json.gz", {})
+    urls, _ = _fake_reddit(monkeypatch, lambda url: _atom([]))
+    rd.reddit_new(config_reddit(subreddits=["a", "b", "c"], per_request=2), tmp_path)
+    assert len(urls) == 2 and "/r/a+b/" in urls[0] and "/r/c/" in urls[1]
+
+
+def test_reddit_first_run_seeds_by_paging_and_still_reports(tmp_path, monkeypatch):
+    import radar.reddit as rd
+    month = {"": _atom([("p1", "ClaudeAI", "CorgiMux released", "2026-10-01"), ("p2", "OpenAI", "DulsTool released", "2026-10-02")]),
+             "t3_p2": _atom([("p3", "OpenAI", "QuillNet released", "2026-09-28")])}
+    day = _atom([("d1", "ClaudeAI", "CorgiMux is back", "2026-10-25"), ("d2", "OpenAI", "FarolMap launched", "2026-10-25")])
+
+    def feed(url):
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        if q["t"] == ["day"]:
+            return day
+        return month.get(q.get("after", [""])[0], _atom([]))
+    urls, _ = _fake_reddit(monkeypatch, feed)
+    out = rd.reddit_new(config_reddit(seed_pages=3), tmp_path)
+    assert out["seeded"] == 3 and [r["term"] for r in out["terms"]] == ["farolmap"]
+    assert "after" not in urls[0] and "after=t3_p2" in urls[1]
+    assert len(urls) == 4 and "t=day" in urls[-1]
+    vocab = snap.load(tmp_path / "reddit_vocab.json.gz")
+    assert vocab["quillnet"] == "2026-09-28" and "corgimux" in vocab
+
+
+def test_reddit_seed_failure_raises_and_saves_nothing(tmp_path, monkeypatch):
+    import radar.reddit as rd
+
+    def boom(url):
+        raise OSError("reddit down")
+    _fake_reddit(monkeypatch, boom)
+    try:
+        rd.reddit_new(config_reddit(), tmp_path)
+        assert False, "should raise"
+    except OSError:
+        pass
+    assert not (tmp_path / "reddit_vocab.json.gz").exists()
+
+
+def _http_error(code, headers=None):
+    import email.message
+    import urllib.error
+    h = email.message.Message()
+    for k, v in (headers or {}).items():
+        h[k] = v
+    return urllib.error.HTTPError("https://www.reddit.com/x", code, "x", h, None)
+
+
+class _Resp:
+    def __init__(self, body):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self.body
+
+
+def test_reddit_429_waits_the_ratelimit_reset_and_retries_once(monkeypatch):
+    import radar.reddit as rd
+    sleeps, answers = [], [_http_error(429, {"x-ratelimit-reset": "30"}), _Resp(b"ok")]
+
+    def urlopen(req, timeout=0):
+        a = answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        return a
+    monkeypatch.setattr(rd.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(rd, "_sleep", sleeps.append)
+    monkeypatch.setattr(rd, "_last_request", 0.0)
+    assert rd._fetch("https://www.reddit.com/x") == b"ok" and sleeps == [32.0]
+
+    answers[:] = [_http_error(429, {"x-ratelimit-reset": "500"}), _http_error(429, {"x-ratelimit-reset": "5"})]
+    sleeps.clear()
+    try:
+        rd._fetch("https://www.reddit.com/x")
+        assert False, "should raise"
+    except Exception as e:
+        assert getattr(e, "code", None) == 429
+    assert 90 in sleeps and answers == []
+
+
+def test_reddit_paces_requests_apart(monkeypatch):
+    import radar.reddit as rd
+    sleeps = []
+    monkeypatch.setattr(rd, "_sleep", sleeps.append)
+    monkeypatch.setattr(rd, "_last_request", 0.0)
+    monkeypatch.setattr(rd.urllib.request, "urlopen", lambda req, timeout=0: _Resp(b"ok"))
+    rd._fetch("https://www.reddit.com/a")
+    assert sleeps == []
+    rd._fetch("https://www.reddit.com/b")
+    assert len(sleeps) == 1 and 55 < sleeps[0] <= rd.PACE
+
+
 # --- ② breakout: one repo taking off --------------------------------------------------
 
 def _repo(name, stars, days_old, now=NOW):
@@ -539,13 +683,13 @@ def test_sources_run_reports_and_keeps_a_new_name(tmp_path, monkeypatch):
 def test_daily_run_writes_a_report_when_every_signal_is_down(tmp_path, monkeypatch):
     def down(*a, **k):
         raise OSError("network is down")
-    for mod, fn in ((cli.sources, "x_new"), (cli.sources, "hf_new"), (cli.hn, "hn_new"), (cli.breakout, "breakouts"), (cli.sitemaps, "diff")):
+    for mod, fn in ((cli.sources, "x_new"), (cli.sources, "hf_new"), (cli.hn, "hn_new"), (cli.reddit, "reddit_new"), (cli.breakout, "breakouts"), (cli.sitemaps, "diff")):
         monkeypatch.setattr(mod, fn, down)
     out = tmp_path / "report.md"
     assert cli.main(["daily", "--config", str(_write_config(tmp_path)), "--state", str(tmp_path / "s"), "--out", str(out),
                      "--skip", "newsites,review"]) == 0
     text = out.read_text()
-    assert text.count("network is down") >= 5 and out.with_suffix(".json").exists()
+    assert text.count("network is down") >= 6 and out.with_suffix(".json").exists()
 
 
 def test_daily_report_in_chinese(tmp_path, monkeypatch):
@@ -554,7 +698,7 @@ def test_daily_report_in_chinese(tmp_path, monkeypatch):
         {"repo": "Niko1221/Strata", "stars": 7734, "velocity": 859, "delta": 600, "age_days": 9.0, "description": "Qwen3.8", "new": True}]})
     out = tmp_path / "report.md"
     cli.main(["daily", "--config", str(_write_config(tmp_path, lang="zh")), "--state", str(tmp_path / "s"), "--out", str(out),
-              "--skip", "x,hf,hn,sitemaps,newsites,review"])
+              "--skip", "x,hf,hn,reddit,sitemaps,newsites,review"])
     text = out.read_text()
     assert "## 新词雷达" in text and "🆕 [Niko1221/Strata]" in text and "| +600 |" in text
 

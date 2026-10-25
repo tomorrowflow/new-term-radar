@@ -11,6 +11,7 @@ T = {
     "note_hf_space": ("Hugging Face Spaces: new at #{rank}", "HF Spaces 新进榜第 {rank} 名"),
     "note_hn": ("Hacker News, {points} points", "Hacker News,{points} 分"),
     "note_hn_show": ("Hacker News: Show HN, {points} points", "Hacker News:Show HN,{points} 分"),
+    "note_reddit": ("Reddit r/{sub}, #{rank} in today's top", "Reddit r/{sub},今日热门第 {rank}"),
     "note_revenue": ("TrustMRR: ${usd} in 30 days, {growth}", "TrustMRR:30 天收入 ${usd},{growth}"),
     "note_revenue_zero": ("TrustMRR: from $0 to ${usd} in 30 days", "TrustMRR:从 $0 到 30 天 ${usd}"),
     "kind_revenue": ("⑥ revenue", "⑥ 收入"),
@@ -78,7 +79,7 @@ T = {
                   "新站 {domain}(注册 {created},约 {etv} 访问/月,{keywords} 个排名词)"),
     "note_surge": ("{label}: {n} places (×{lift})", "{label} {n} 处 (×{lift})"),
     # signal labels, earliest first
-    "kind_x": ("① X", "① X"), "kind_hf": ("① HF", "① HF"), "kind_hn": ("① HN", "① HN"), "kind_breakout": ("② breakout", "② 爆发"),
+    "kind_x": ("① X", "① X"), "kind_hf": ("① HF", "① HF"), "kind_hn": ("① HN", "① HN"), "kind_reddit": ("① Reddit", "① Reddit"), "kind_breakout": ("② breakout", "② 爆发"),
     "kind_sitemap": ("③ sitemaps", "③ 竞品"), "kind_newsite": ("③ new site", "③ 新站"), "kind_watch": ("watch", "观察词"),
     # daily report
     "title": ("## New-term radar", "## 新词雷达"),
@@ -121,6 +122,9 @@ T = {
     "hit_cols": ("| Signal | Reviewed | Hits | Hit rate | Median days ahead |", "| 信号 | 复盘 | 命中 | 命中率 | 提前天数中位数 |"),
     "status_h": ("### Data status", "### 数据状态"),
     "st_x": ("- ① X: {state}", "- ① X:{state}"), "st_hf": ("- ① HF: {state}", "- ① HF:{state}"), "st_hn": ("- ① HN: {state}", "- ① HN:{state}"),
+    "st_reddit": ("- ① Reddit: {state}", "- ① Reddit:{state}"),
+    "st_reddit_ok": ("{posts} top posts read", "读了 {posts} 条热门帖子"),
+    "st_reddit_seeded": (", first run: {seeded} posts seeded the vocabulary", ",首次运行,用 {seeded} 条帖子建词表"),
     "st_hn_ok": ("{stories} stories read", "读了 {stories} 条故事"),
     "st_hn_seeded": (", first run: {seeded} stories seeded the vocabulary", ",首次运行,用 {seeded} 条故事建词表"),
     "st_x_ok": ("{answered}/{accounts} accounts, {posts} posts", "{answered}/{accounts} 个账号,{posts} 条帖子"),

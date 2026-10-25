@@ -57,6 +57,7 @@ Purple, tagged NEW: what 0.3 to 0.5 added (⑥ revenue, ⑦ Reddit asks, ⑧ sel
 | ① X | Names the accounts in your list used for the first time in 60 days | AIsa key | $0.003 per account per run |
 | ① Hugging Face | Models and Spaces (the demos people try) new to the trending top 50; quantised copies and a model's own demo grouped under the base name | nothing | free |
 | ① Hacker News | Names that first appear in a story with 50+ points (Show HN: 15+) in the last 48 hours and in no 50+ story of the last 60 days; a Show HN title gives the product name; runs in `daily` only | nothing | free |
+| ① Reddit | Names that first appear in the day's top posts of your subreddits (10 AI and self-hosting ones by default) and in no top post of the last 60 days; reads Reddit's RSS feeds at one request a minute, so a run takes a few minutes and the first run about ten; runs in `daily` only | nothing | free |
 | ② GitHub breakout | A repo under 14 days old averaging 200+ stars a day, or +400 since yesterday; also per category, `ai` and `self-hosted`, each with lower bars (a self-hosted repo never hits 200 a day) and a minimum gain since yesterday, so they list repos growing now; adds the search variants people use ("niko strata") | nothing (a GitHub token raises the rate limit) | free |
 | ③ Sitemaps | Words that several new URLs on a site share and its older URLs rarely carried. The example config watches eight AI tool directories (toolify, aixploria, ai-bot.cn, opentools, dang.ai, clipfly, aitoptools, futurepedia) and four MCP and skill directories | the sitemaps you list | free |
 | ③ New sites | Domains registered and first indexed in the last 90 days that already rank for 20+ keywords | AIsa key | about $0.13 per query, weekly |
@@ -219,7 +220,7 @@ python -m radar daily --skip x,hf --out report.md  # everything else, once a day
 
 `sources` writes a report only when there is a new name. `daily` with `--skip x,hf` lists what `sources` kept in the last 24 hours. If you run only once a day, use `python -m radar daily` and skip nothing.
 
-Other flags: `--skip` takes any of `x,hf,hn,breakout,sitemaps,newsites,gsc,review,judge,usecases`; `--new-sites` runs the weekly signal today; `--mail` sends the report (below); `--state DIR` moves the database and snapshots.
+Other flags: `--skip` takes any of `x,hf,hn,reddit,breakout,sitemaps,newsites,gsc,review,judge,usecases`; `--new-sites` runs the weekly signal today; `--mail` sends the report (below); `--state DIR` moves the database and snapshots.
 
 ## What a report looks like
 
@@ -261,6 +262,7 @@ and from `sources`:
 | `stop_words` | Everyday words of your field, added to the built-in list (which is tuned for AI tooling) |
 | `judge` | `model` (any chat model on AIsa) and `min_score` (0.5) |
 | `hn` | `min_points` (50), `show_min_points` (15, for Show HN), `window_hours` (48), `vocab_days` (60) |
+| `reddit` | `subreddits`, `per_request` (subreddits per feed request, 10), `limit` (100), `seed_pages` (pages of the month's top read on the first run, 5), `vocab_days` (60) |
 | `breakout` | `window_days`, `min_stars`, `velocity_min` (stars a day), `delta_min` (stars since yesterday), `categories` (name to `topics`, `min_stars`, `velocity_min`, `delta_min`, `gain_min` (stars since yesterday it must also have); default `ai` and `self-hosted`) |
 | `new_sites` | `queries`: a name and a SQL LIKE pattern on the domain (`"%ai%"`), one paid query each; `weekday` (0 = Monday) |
 | `review` | `after_days` (14) and `per_day` (5 leads a day) |
