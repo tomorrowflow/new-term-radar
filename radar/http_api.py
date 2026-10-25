@@ -21,7 +21,8 @@ Every request but /health needs `Authorization: Bearer $RADAR_API_TOKEN`.
 Jobs run one at a time, in a subprocess of the command line, so two runs never write the
 same state at once. With RADAR_SCHEDULE=on the same queue also takes the schedule of
 .github/workflows/radar.yml: `sources` at 00:00, 08:00 and 16:00 UTC, `daily --skip x,hf`
-at 01:30 UTC. The job list lives in memory; reports stay in RADAR_STATE/reports.
+at 01:30 UTC. RADAR_DAILY_AT=HH:MM replaces that with one full `daily` run a day at that
+time in the container's TZ. The job list lives in memory; reports stay in RADAR_STATE/reports.
 """
 from __future__ import annotations
 
@@ -155,11 +156,22 @@ class Jobs:
         return path if path.exists() else None
 
 
-def due(now: datetime, fired: set[tuple]) -> list[tuple[str, list[str]]]:
+def schedule_from_env() -> tuple[list, timezone | None]:
+    """The slots and the zone they are in. RADAR_DAILY_AT is local time (TZ), the default is UTC."""
+    at = os.environ.get("RADAR_DAILY_AT", "").strip()
+    if not at:
+        return SCHEDULE, timezone.utc
+    if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", at):
+        raise SystemExit(f"RADAR_DAILY_AT must be HH:MM, got {at!r}.")
+    h, m = (int(x) for x in at.split(":"))
+    return [("daily", (h, m), [])], None
+
+
+def due(now: datetime, fired: set[tuple], slots: list = SCHEDULE) -> list[tuple[str, list[str]]]:
     """Scheduled runs whose slot came up in the last GRACE and has not fired yet in this process.
     The grace keeps a restart at 09:00 from replaying the 08:00 run."""
     runs = []
-    for command, (h, m), skip in SCHEDULE:
+    for command, (h, m), skip in slots:
         slot = (now.date(), h, m)
         if (now.hour, now.minute) >= (h, m) and now - now.replace(hour=h, minute=m, second=0, microsecond=0) < GRACE and slot not in fired:
             fired.add(slot)
@@ -194,10 +206,10 @@ def feed(reports: Path, base_url: str) -> str:
             f"{''.join(items)}</channel></rss>\n")
 
 
-def schedule(jobs: Jobs) -> None:
+def schedule(jobs: Jobs, slots: list, tz: timezone | None) -> None:
     fired: set[tuple] = set()
     while True:
-        for command, skip in due(datetime.now(timezone.utc), fired):
+        for command, skip in due(datetime.now(tz), fired, slots):
             jobs.submit({"command": command, "skip": skip}, by="schedule")
         time.sleep(30)
 
@@ -278,8 +290,12 @@ def main() -> None:
     jobs = Jobs(state / "reports")
     threading.Thread(target=jobs.work, daemon=True).start()
     if os.environ.get("RADAR_SCHEDULE", "").lower() in ("1", "on", "true", "yes"):
-        threading.Thread(target=schedule, args=(jobs,), daemon=True).start()
-        print("Schedule on: sources at 00:00, 08:00, 16:00 UTC; daily at 01:30 UTC.", file=sys.stderr)
+        slots, tz = schedule_from_env()
+        threading.Thread(target=schedule, args=(jobs, slots, tz), daemon=True).start()
+        if tz is None:
+            print(f"Schedule on: daily at {os.environ['RADAR_DAILY_AT'].strip()} {time.strftime('%Z')}.", file=sys.stderr)
+        else:
+            print("Schedule on: sources at 00:00, 08:00, 16:00 UTC; daily at 01:30 UTC.", file=sys.stderr)
     port = int(os.environ.get("RADAR_HTTP_PORT", "8787"))
     print(f"new-term-radar HTTP API on :{port}", file=sys.stderr)
     ThreadingHTTPServer(("0.0.0.0", port), handler(jobs, token)).serve_forever()

@@ -100,6 +100,18 @@ def test_schedule_fires_each_slot_once_and_not_after_a_late_restart():
     assert http_api.due(at(9, 0), set()) == []                  # a restart at 09:00 does not replay 08:00
 
 
+def test_daily_at_replaces_the_default_slots_with_one_full_daily_run(monkeypatch):
+    monkeypatch.setenv("RADAR_DAILY_AT", "05:00")
+    slots, tz = http_api.schedule_from_env()
+    assert tz is None
+    at = lambda h, m: datetime(2026, 10, 25, h, m)
+    assert http_api.due(at(0, 0), set(), slots) == []
+    assert http_api.due(at(5, 1), set(), slots) == [("daily", [])]
+    monkeypatch.setenv("RADAR_DAILY_AT", "5am")
+    with pytest.raises(SystemExit):
+        http_api.schedule_from_env()
+
+
 def test_feed_lists_reports_newest_first_and_takes_the_token_in_the_query(api, capsys):
     import os
     import xml.etree.ElementTree as ET

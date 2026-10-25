@@ -73,6 +73,8 @@ Then ask for a paid run, for example "Keyword research on PhotoCraft". The skill
 
 The radar finds new names only by comparing today with an earlier run, so it is most useful when it runs on a schedule. Set `RADAR_SCHEDULE=on` in `.env` and run `docker compose up -d`. The container then runs `sources` at 00:00, 08:00 and 16:00 UTC, and `daily --skip x,hf` at 01:30 UTC. This is the same schedule as `.github/workflows/radar.yml`. With the example config, the cost is about $15 a month.
 
+To run once a day instead, also set `RADAR_DAILY_AT=05:00` and `TZ=Europe/Berlin` (or your zone). The container then runs only one full `daily`, X and Hugging Face included, at that local time.
+
 ## 6. Optional: an RSS feed
 
 The container serves an RSS 2.0 feed of the last 30 `daily` and `sources` reports, newest first. Each item title starts with the first names that the report found, and the item body is the full report as HTML. Most feed readers cannot send an `Authorization` header, so this endpoint also accepts the token in the URL:
