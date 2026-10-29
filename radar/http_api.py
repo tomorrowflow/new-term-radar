@@ -7,6 +7,8 @@ Every request but /health needs `Authorization: Bearer $RADAR_API_TOKEN`.
 
   GET  /health               {"ok": true}
   GET  /leads?days=7         what the radar kept, with review verdicts. Free, instant.
+  GET  /context?name=X       per name (up to 8 `name`s): its lead, the links of the posts that
+                             carried it, and what a video channel said about it. Free, instant.
   POST /jobs                 queue a paid run; returns 202 {"id": ...}. Body is one of
                                {"command": "keywords", "names": [...], "repos": {"name": "owner/repo"}}
                                {"command": "pains", "topic": "ai headshot"}
@@ -249,6 +251,11 @@ def handler(jobs: Jobs, token: str):
                 except ValueError:
                     return self._send(400, {"error": "days is a number"})
                 return self._send(200, cli.kept_leads(_paths()[1], days))
+            if parts == ["context"]:
+                names = [n.strip() for n in parse_qs(url.query).get("name", []) if n.strip()]
+                if not 1 <= len(names) <= 8:
+                    return self._send(400, {"error": "give 1 to 8 `name` parameters"})
+                return self._send(200, cli.context(_paths()[1], names))
             if parts == ["jobs"]:
                 return self._send(200, {"jobs": jobs.listing()})
             if len(parts) == 2 and parts[0] == "jobs":

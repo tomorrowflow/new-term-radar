@@ -333,6 +333,7 @@ npx skills add zhuyansen/new-term-radar
 | 工具 | 返回什么 | 花费和耗时 |
 |---|---|---|
 | `recent_leads` | 雷达记下的线索，带复盘结论和各信号命中率 | 免费，立刻返回 |
+| `lead_context` | 雷达对最多 8 个名字知道什么：线索本身、带出它的帖子链接、视频频道怎么介绍它（命令行 `python -m radar context "名字"`，HTTP `GET /context?name=...`） | 免费，立刻返回 |
 | `keyword_table` | 你给的名字的新词表 | 每个名字约 $0.05，每次调用另加 $0.09；每个名字 40 到 90 秒 |
 | `run_radar` | 跑一次 `sources` 或 `daily`，返回报告 | 付费，要几分钟。只适合第一次试用，定时运行应该交给 cron 或 Actions |
 

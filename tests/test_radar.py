@@ -1747,3 +1747,43 @@ def test_breakout_table_links_a_featured_repo_to_its_second_of_the_video(cfg):
     text = "\n".join(report._breakout_lines({"repos": [row], "categories": {}}, cfg, {"a/homebox": seg}))
     assert "[a/homebox](https://github.com/a/homebox) [📺](https://youtu.be/v1?t=11) |" in text
     assert "(2026-10-27): Homebox keeps your NAS tidy." in text
+
+
+def test_store_keeps_post_links_and_finds_a_lead_by_variant(tmp_path):
+    conn = store.connect(tmp_path)
+    p1 = {"account": "HN", "text": "Show HN: Strata", "url": "https://news.ycombinator.com/item?id=1", "likes": 50}
+    p2 = {"account": "r/LocalLLaMA", "text": "Strata is wild", "url": "https://reddit.com/r/x", "likes": 0}
+    store.record(conn, [_lead("strata", ["hn"], variants=["strata", "niko strata"], posts=[p1], repo="Niko1221/Strata")], date(2026, 10, 1))
+    store.record(conn, [_lead("strata", ["reddit"], posts=[p1, p2, {"account": "@x", "text": "no link", "url": ""}])], date(2026, 10, 2))
+    found = store.find(conn, "Niko  Strata")
+    assert found["term"] == "strata" and found["repo"] == "Niko1221/Strata" and found["signals"] == ["hn", "reddit"]
+    assert [x["by"] for x in found["links"]] == ["HN", "r/LocalLLaMA"]
+    assert store.find(conn, "strat") is None
+
+
+def test_store_adds_the_new_columns_to_an_old_database(tmp_path):
+    import sqlite3
+    old = sqlite3.connect(tmp_path / "radar.db")
+    old.execute("CREATE TABLE leads (term TEXT PRIMARY KEY, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, signals TEXT NOT NULL DEFAULT '[]', "
+                "notes TEXT NOT NULL DEFAULT '[]', named REAL, variants TEXT NOT NULL DEFAULT '[]', reviewed_at TEXT, verdict TEXT, "
+                "lead_days INTEGER, trends TEXT)")
+    old.execute("INSERT INTO leads (term, first_seen, last_seen) VALUES ('opendots', '2026-09-01', '2026-09-01')")
+    old.commit()
+    conn = store.connect(tmp_path)
+    assert store.find(conn, "opendots")["links"] == []
+    store.record(conn, [_lead("opendots", ["x"], repo="a/opendots")])
+    assert store.find(conn, "opendots")["repo"] == "a/opendots"
+
+
+def test_youtube_about_matches_a_name_or_the_known_repo(cfg, tmp_path, monkeypatch):
+    cfg["youtube"] = {"window_days": 14, "channels": [{"name": "GitHub Awesome", "id": "UCabc"}]}
+    desc = "00:11 - free-my-tv https://github.com/simbasjungles/free-my-tv\n00:40 - tstack https://github.com/t3dotgg/tstack"
+    _fake_youtube(monkeypatch, {"v1": {"description": desc, "duration": 60, "caps": [(12000, "Free my TV is an ad-free home screen")]}})
+    conn = store.connect(tmp_path)
+    youtube.read_new(cfg, conn)
+    assert [v["text"] for v in youtube.about(conn, "Free My TV")] == ["Free my TV is an ad-free home screen"]
+    assert [v["repo"] for v in youtube.about(conn, "tstack", "T3dotgg/TStack")] == ["t3dotgg/tstack"]
+    assert youtube.about(conn, "tstack", "someone/tstack") == []
+    data = cli.context(tmp_path, ["free my tv"])
+    assert data["names"][0]["lead"] is None and data["names"][0]["videos"][0]["url"] == "https://youtu.be/v1?t=11"
+

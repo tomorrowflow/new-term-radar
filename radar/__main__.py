@@ -22,6 +22,7 @@ Signals:
 
   python -m radar keywords "name one" "name two" [--repo "name one=owner/repo"] [--json]
   python -m radar leads    [--days 7] [--json]
+  python -m radar context  "name" [--json]   what the radar knows about a name: its lead, links, video segments
   python -m radar pains    "keyword" [--extension ID] [--json]   what people complain about for a kind of tool
   python -m radar history  [pull|read|sort] [--platform stripe] [--max-usd 20] [--out sellers.csv]
                            every seller on the payment platforms of ⑧, back to 2019 (about $18 for all; see radar/seller_history.py)
@@ -143,6 +144,33 @@ def kept_leads(state: Path, days: int) -> dict:
     return {"leads": store.leads(conn, days), "hit_rates": store.summary(conn)}
 
 
+def context(state: Path, names: list[str]) -> dict:
+    """What the radar knows about each name, free: its lead (signals, verdict, the posts that
+    carried it) and what a video channel said about it."""
+    conn = store.connect(state)
+    out = []
+    for name in names:
+        lead = store.find(conn, name)
+        out.append({"name": name, "lead": lead, "videos": youtube.about(conn, name, lead and lead["repo"])})
+    return {"names": out}
+
+
+def cmd_context(args, state: Path) -> int:
+    data = context(state, args.names)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=1))
+        return 0
+    for n in data["names"]:
+        lead = n["lead"]
+        print(f"{n['name']}: " + (f"lead since {lead['first_seen']} [{', '.join(lead['signals'])}] {(lead['notes'] or [''])[-1]}"
+                                  if lead else "not a lead"))
+        for x in (lead or {}).get("links", []):
+            print(f"  {x['by']}: {x['text'][:80]} {x['url']}")
+        for v in n["videos"]:
+            print(f"  📺 {v['channel']} · {v['title'][:50]} ({v['published']}) {v['url']}\n     {v['text'][:200]}")
+    return 0
+
+
 def cmd_keywords(args, cfg: dict, state: Path) -> int:
     repos = dict(r.split("=", 1) for r in args.repo)
     uc, text = keyword_table(cfg, state, args.names, repos)
@@ -213,11 +241,11 @@ def main(argv: list[str] | None = None) -> int:
         return serve_mcp()
     prog = "python -m radar" if __package__ == "radar" else "new-term-radar"  # installed, the package has another name
     p = argparse.ArgumentParser(prog=prog, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["daily", "sources", "keywords", "leads", "pains", "history"])
-    p.add_argument("names", nargs="*", help="for `keywords`: the names to read; for `history`: pull, read, sort or report")
+    p.add_argument("command", choices=["daily", "sources", "keywords", "leads", "context", "pains", "history"])
+    p.add_argument("names", nargs="*", help="for `keywords` and `context`: the names to read; for `history`: pull, read, sort or report")
     p.add_argument("--repo", action="append", default=[], metavar="NAME=OWNER/REPO", help="for `keywords`: a name's GitHub repository")
     p.add_argument("--days", type=int, default=7, help="for `leads`: how far back")
-    p.add_argument("--json", action="store_true", help="for `keywords` and `leads`: print JSON")
+    p.add_argument("--json", action="store_true", help="for `keywords`, `leads` and `context`: print JSON")
     p.add_argument("--config", default="config.json")
     p.add_argument("--state", default="state", help="directory for radar.db and the snapshots")
     p.add_argument("--out", help="write the report (Markdown) here; `daily` also writes a .json beside it")
@@ -239,6 +267,10 @@ def main(argv: list[str] | None = None) -> int:
     state = Path(args.state)
     if args.command == "leads":
         return cmd_leads(args, state)
+    if args.command == "context":
+        if not args.names:
+            p.error("context: give at least one name")
+        return cmd_context(args, state)
     if args.command == "keywords" and not args.names:
         p.error("keywords: give at least one name")
     cfg = config.load(Path(args.config))

@@ -19,6 +19,7 @@ import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
+from .breakout import repo_term
 from .feeds import _fetch, _items
 
 TEXT_MAX = 1000
@@ -108,13 +109,19 @@ def read_new(cfg: dict, conn: sqlite3.Connection) -> dict:
 
 def featured(conn: sqlite3.Connection, repos: list[str]) -> dict[str, dict]:
     """The latest segment per repo (owner/name, any case): {repo: {channel, title, published, url, text}}."""
-    out = {}
-    for repo in dict.fromkeys(repos):
-        row = conn.execute("SELECT s.video_id, s.start, s.text, v.channel, v.title, v.published FROM video_segments s "
-                           "JOIN videos v USING (video_id) WHERE s.repo = ? COLLATE NOCASE ORDER BY v.published DESC LIMIT 1",
-                           (repo,)).fetchone()
-        if row:
-            vid, start, text, channel, title, published = row
-            out[repo] = {"channel": channel, "title": title, "published": published, "text": text,
-                         "url": f"https://youtu.be/{vid}?t={start}"}
-    return out
+    found = {repo: about(conn, repo.split("/")[-1], repo, 1) for repo in dict.fromkeys(repos)}
+    return {repo: segs[0] for repo, segs in found.items() if segs}
+
+
+def about(conn: sqlite3.Connection, name: str, repo: str | None = None, limit: int = 3) -> list[dict]:
+    """Segments about a name, newest first: the repo's own when it is known, otherwise any
+    segment whose repo name or line reads as `name` ("free my tv" for simbasjungles/free-my-tv)."""
+    want = repo_term(name)
+    rows = conn.execute("SELECT s.video_id, s.start, s.repo, s.name, s.text, v.channel, v.title, v.published FROM video_segments s "
+                        "JOIN videos v USING (video_id) ORDER BY v.published DESC, s.start").fetchall()
+    out = []
+    for vid, start, seg_repo, seg_name, text, channel, title, published in rows:
+        if repo.lower() == seg_repo.lower() if repo else want in (repo_term(seg_repo.split("/")[1]), repo_term(seg_name)):
+            out.append({"repo": seg_repo, "channel": channel, "title": title, "published": published, "text": text,
+                        "url": f"https://youtu.be/{vid}?t={start}"})
+    return out[:limit]

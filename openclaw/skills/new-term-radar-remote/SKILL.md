@@ -40,6 +40,16 @@ curl -fsS -H "$AUTH" "$RADAR_URL/leads?days=7"
 
 The result has `leads` (each with `term`, `first_seen`, `signals`, `verdict`, `days_ahead`, `note`) and `hit_rates`. If it is empty, the radar has not run yet. Say so and offer a run.
 
+## Free: what a name is
+
+When the user asks about a name, or before you explain a lead, read what the radar kept about it. It costs nothing and returns at once. Give up to 8 names, each as its own `name` parameter (URL-encode spaces as `%20`):
+
+```bash
+curl -fsS -H "$AUTH" "$RADAR_URL/context?name=free%20my%20tv&name=tstack"
+```
+
+Each entry in `names` has `lead` and `videos`. `lead` is null when the radar never reported the name; otherwise it has `signals`, `notes`, `first_seen`, `verdict` and `links` (the posts that carried it: `by`, `text`, `url`). `videos` lists what a YouTube channel such as GitHub Awesome said about it: `text` is the narrator's words and `url` opens the video at that second. Explain the name from these words and links, cite one of them, and do not guess beyond them. Empty `videos` and a null `lead` mean the radar knows nothing about the name. Say so.
+
 ## Paid: queue a job, then poll it
 
 Paid work runs as a job. A job takes minutes, and the container runs one job at a time. Tell the user the cost and the time before you queue one.

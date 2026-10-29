@@ -338,6 +338,7 @@ Without uv: `pip install "new-term-radar[mcp]"`, then `"command": "new-term-rada
 | Tool | What it returns | Cost and time |
 |---|---|---|
 | `recent_leads` | What the radar kept, with review verdicts and the hit rate per signal | free, instant |
+| `lead_context` | What the radar knows about up to 8 names: the lead, the links of the posts that carried it, and what a video channel said about it (`python -m radar context "name"`, `GET /context?name=...`) | free, instant |
 | `keyword_table` | The keyword table for names you give it | about $0.05 a name plus $0.09 a call; 40 to 90 seconds a name |
 | `run_radar` | One `sources` or `daily` run and its report | paid; minutes. For a first try: the schedule belongs in cron or Actions |
 

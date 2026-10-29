@@ -5,6 +5,7 @@ due()             leads old enough to check in Google Trends and not checked yet
 save_verdict()    hit / miss / no_data and how many days the radar was ahead.
 recent_sources()  X and Hugging Face leads the frequent job kept since yesterday.
 summary()         hit rate and median lead per signal.
+find()            one lead by its term or a variant, with the links of the posts that carried it.
 
 The videos and video_segments tables belong to youtube.py.
 
@@ -20,6 +21,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 NOTES_KEPT = 10
+LINKS_KEPT = 10
 SUMMARY_WINDOW = 60
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS leads (
@@ -33,7 +35,9 @@ CREATE TABLE IF NOT EXISTS leads (
   reviewed_at TEXT,
   verdict     TEXT,
   lead_days   INTEGER,
-  trends      TEXT
+  trends      TEXT,
+  links       TEXT NOT NULL DEFAULT '[]',
+  repo        TEXT
 );
 -- youtube.py: the videos read and one segment per repo they show
 CREATE TABLE IF NOT EXISTS videos (
@@ -61,6 +65,10 @@ def connect(state_dir: Path) -> sqlite3.Connection:
     state_dir.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(state_dir / "radar.db")
     conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(leads)")}
+    for col, ddl in (("links", "TEXT NOT NULL DEFAULT '[]'"), ("repo", "TEXT")):   # databases from before 0.6
+        if col not in cols:
+            conn.execute(f"ALTER TABLE leads ADD COLUMN {col} {ddl}")
     return conn
 
 
@@ -70,22 +78,31 @@ def _merge(old: str, new: list[str], keep: int | None = None) -> str:
     return json.dumps(out[-keep:] if keep else out, ensure_ascii=False)
 
 
+def _links(posts: list[dict]) -> list[dict]:
+    return [{"by": p["account"], "text": p["text"][:200], "url": p["url"]} for p in posts if p.get("url")]
+
+
 def record(conn: sqlite3.Connection, rows: list[dict], today: date | None = None) -> int:
     """rows: report leads with term, kinds (signal names), signals (report lines),
-    optional named and variants."""
+    optional named, variants, posts (account, text, url) and repo."""
     day = (today or date.today()).isoformat()
     for r in rows:
-        old = conn.execute("SELECT signals, notes, named, variants FROM leads WHERE term = ?", (r["term"],)).fetchone()
+        old = conn.execute("SELECT signals, notes, named, variants, links, repo FROM leads WHERE term = ?", (r["term"],)).fetchone()
         kinds, notes, variants = sorted(set(r["kinds"])), list(r["signals"]), list(r.get("variants", []))
+        links = _links(r.get("posts", []))
         if old is None:
-            conn.execute("INSERT INTO leads (term, first_seen, last_seen, signals, notes, named, variants) VALUES (?,?,?,?,?,?,?)",
+            conn.execute("INSERT INTO leads (term, first_seen, last_seen, signals, notes, named, variants, links, repo) VALUES (?,?,?,?,?,?,?,?,?)",
                          (r["term"], day, day, json.dumps(kinds), json.dumps(notes[-NOTES_KEPT:], ensure_ascii=False),
-                          r.get("named"), json.dumps(variants, ensure_ascii=False)))
+                          r.get("named"), json.dumps(variants, ensure_ascii=False),
+                          json.dumps(links[-LINKS_KEPT:], ensure_ascii=False), r.get("repo")))
         else:
             named = r.get("named") if r.get("named") is not None else old[2]
-            conn.execute("UPDATE leads SET last_seen = ?, signals = ?, notes = ?, named = ?, variants = ? WHERE term = ?",
+            kept = {x["url"] for x in json.loads(old[4])}
+            conn.execute("UPDATE leads SET last_seen = ?, signals = ?, notes = ?, named = ?, variants = ?, links = ?, repo = ? WHERE term = ?",
                          (day, json.dumps(sorted(set(json.loads(old[0])) | set(kinds))), _merge(old[1], notes, NOTES_KEPT),
-                          named, _merge(old[3], variants), r["term"]))
+                          named, _merge(old[3], variants),
+                          json.dumps((json.loads(old[4]) + [x for x in links if x["url"] not in kept])[-LINKS_KEPT:], ensure_ascii=False),
+                          r.get("repo") or old[5], r["term"]))
     conn.commit()
     return len(rows)
 
@@ -138,3 +155,16 @@ def leads(conn: sqlite3.Connection, days: int = 7, today: date | None = None) ->
     return [{"term": t, "first_seen": f, "last_seen": l, "signals": json.loads(k), "note": (json.loads(n) or [""])[-1],
              "name_score": named, "variants": json.loads(v), "verdict": verdict, "days_ahead": ahead}
             for t, f, l, k, n, named, v, verdict, ahead in rows]
+
+
+def find(conn: sqlite3.Connection, name: str) -> dict | None:
+    """The lead whose term or one of whose variants is `name` (any case)."""
+    name = " ".join(name.lower().split())
+    for row in conn.execute("SELECT term, first_seen, last_seen, signals, notes, named, variants, verdict, lead_days, links, repo "
+                            "FROM leads WHERE term = ? OR variants LIKE ? ORDER BY last_seen DESC", (name, f'%"{name}"%')):
+        t, f, l, k, n, named, v, verdict, ahead, links, repo = row
+        if t == name or name in json.loads(v):
+            return {"term": t, "first_seen": f, "last_seen": l, "signals": json.loads(k), "notes": json.loads(n),
+                    "name_score": named, "variants": json.loads(v), "verdict": verdict, "days_ahead": ahead,
+                    "links": json.loads(links), "repo": repo}
+    return None

@@ -37,7 +37,7 @@ except ImportError:                    # mcp 1.x called it FastMCP
 server = MCPServer(
     "new-term-radar",
     instructions="Names that are starting to surge in AI, and the generic search terms behind them. "
-                 "Start with recent_leads (free). keyword_table and run_radar call paid APIs and are slow; "
+                 "Start with recent_leads (free); lead_context says what a name is, free. keyword_table and run_radar call paid APIs and are slow; "
                  "say so before using them, and keep keyword_table to one or two names a call.")
 
 
@@ -57,6 +57,14 @@ def recent_leads(days: int = 7) -> dict:
     score and, once reviewed, whether it rose in Google Trends; plus the hit rate per signal.
     Reads the local database only: free and instant. Empty until `sources` or `daily` has run."""
     return cli.kept_leads(_paths()[1], days)
+
+
+@server.tool()
+def lead_context(names: list[str]) -> dict:
+    """What the radar knows about each name (1 to 8): its lead (signals, notes, verdict), the
+    links of the posts that carried it, and what a video channel such as GitHub Awesome said
+    about it, with a link to that second. Free and instant, like recent_leads."""
+    return cli.context(_paths()[1], names[:8])
 
 
 def _keyword_table(names: list[str], repos: dict[str, str]) -> dict:

@@ -56,6 +56,17 @@ def test_leads_reads_what_the_radar_kept(api):
     assert code == 200 and [r["term"] for r in body["leads"]] == ["photocraft"]
 
 
+def test_context_says_what_the_radar_knows_about_a_name(api):
+    url, tmp_path, _ = api
+    post = {"account": "Simon Willison", "text": "Photocraft is out", "url": "https://simonwillison.net/p", "likes": 0}
+    store.record(store.connect(tmp_path / "state"), [_lead("photocraft", ["feeds"], posts=[post])], date.today())
+    code, body = call(url, "/context?name=Photocraft&name=nothing")
+    assert code == 200 and [n["name"] for n in body["names"]] == ["Photocraft", "nothing"]
+    assert body["names"][0]["lead"]["links"] == [{"by": "Simon Willison", "text": "Photocraft is out", "url": "https://simonwillison.net/p"}]
+    assert body["names"][1] == {"name": "nothing", "lead": None, "videos": []}
+    assert call(url, "/context")[0] == 400
+
+
 def test_a_keywords_job_runs_the_command_line_and_returns_its_output(api):
     url, _, ran = api
     code, queued = call(url, "/jobs", {"command": "keywords", "names": ["photocraft"], "repos": {"photocraft": "storytold/photocraft"}})
