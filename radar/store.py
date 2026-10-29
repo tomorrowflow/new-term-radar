@@ -6,6 +6,8 @@ save_verdict()    hit / miss / no_data and how many days the radar was ahead.
 recent_sources()  X and Hugging Face leads the frequent job kept since yesterday.
 summary()         hit rate and median lead per signal.
 
+The videos and video_segments tables belong to youtube.py.
+
 Lists are stored as JSON text; the file is small (one row per term) and safe to keep in
 a CI cache or to commit.
 """
@@ -32,13 +34,33 @@ CREATE TABLE IF NOT EXISTS leads (
   verdict     TEXT,
   lead_days   INTEGER,
   trends      TEXT
-)"""
+);
+-- youtube.py: the videos read and one segment per repo they show
+CREATE TABLE IF NOT EXISTS videos (
+  video_id  TEXT PRIMARY KEY,
+  channel   TEXT NOT NULL,
+  title     TEXT NOT NULL,
+  published TEXT NOT NULL,
+  read_at   TEXT NOT NULL,
+  segments  INTEGER NOT NULL,
+  captions  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS video_segments (
+  video_id TEXT NOT NULL,
+  start    INTEGER NOT NULL,
+  repo     TEXT NOT NULL,
+  name     TEXT NOT NULL,
+  text     TEXT NOT NULL,
+  PRIMARY KEY (video_id, start)
+);
+CREATE INDEX IF NOT EXISTS video_segments_repo ON video_segments (repo COLLATE NOCASE);
+"""
 
 
 def connect(state_dir: Path) -> sqlite3.Connection:
     state_dir.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(state_dir / "radar.db")
-    conn.execute(SCHEMA)
+    conn.executescript(SCHEMA)
     return conn
 
 

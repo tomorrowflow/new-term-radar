@@ -97,9 +97,7 @@ def topic_lines(cfg: dict, lead: list[dict], b: dict[str, dict], gsc: dict) -> l
     for name, pattern in cfg["topics"].items():
         pat = re.compile(pattern, re.I)
         hits = [r for r in named(cfg, lead) if pat.search(r["term"] + " " + " ".join(r["examples"][:2]))]
-        bo = b["breakout"]
-        pool = {r["repo"]: r for r in [*(bo.get("repos") or []), *(r for c in (bo.get("categories") or {}).values() for r in c["repos"])]}
-        repos = [r for r in pool.values() if pat.search(r["repo"] + " " + r["description"])]
+        repos = [r for r in breakout_rows(b["breakout"]) if pat.search(r["repo"] + " " + r["description"])]
         queries = [q for q in gsc.get("queries") or [] if pat.search(q["query"])]
         lines += ["", t("topic_h", name=name), ""]
         if not (hits or repos or queries):
@@ -111,24 +109,40 @@ def topic_lines(cfg: dict, lead: list[dict], b: dict[str, dict], gsc: dict) -> l
     return lines
 
 
-def _breakout_table(repos: list[dict], none: str) -> list[str]:
+def breakout_rows(bo: dict) -> list[dict]:
+    """Every breakout repo, overall and per category, once."""
+    pool = [*(bo.get("repos") or []), *(r for c in (bo.get("categories") or {}).values() for r in c["repos"])]
+    return list({r["repo"]: r for r in pool}.values())
+
+
+def _featured(r: dict, featured: dict[str, dict]) -> str:
+    f = featured.get(r["repo"])
+    return f" [📺]({f['url']})" if f else ""
+
+
+def _breakout_table(repos: list[dict], none: str, featured: dict[str, dict]) -> list[str]:
     if not repos:
         return [none]
     return [t("breakout_cols"), "|---|---|---|---|---|---|"] + [
-        f"| {'🆕 ' if r.get('new') else ''}[{r['repo']}](https://github.com/{r['repo']}) | {r['stars']} | {r['velocity']} | "
+        f"| {'🆕 ' if r.get('new') else ''}[{r['repo']}](https://github.com/{r['repo']}){_featured(r, featured)} | {r['stars']} | {r['velocity']} | "
         f"{'+' + str(r['delta']) if r['delta'] is not None else t('dash')} | {r['age_days']} | "
         f"{_cell(r['description'][:60])} |" for r in repos]
 
 
-def _breakout_lines(bo: dict, cfg: dict) -> list[str]:
+def _breakout_lines(bo: dict, cfg: dict, featured: dict[str, dict]) -> list[str]:
     c = cfg["breakout"]
     lines = ["", t("breakout_h", days=c["window_days"]), ""]
-    lines += _breakout_table(bo.get("repos") or [], t("recent_none", why=_state(bo, t("no_breakouts"))))
+    lines += _breakout_table(bo.get("repos") or [], t("recent_none", why=_state(bo, t("no_breakouts"))), featured)
     for name, block in (bo.get("categories") or {}).items():
         bars = (c.get("categories") or {}).get(name, {})
         lines += ["", t("breakout_cat_h", name=name, topics=", ".join(bars.get("topics", [])), min_stars=bars.get("min_stars"),
                         velocity=bars.get("velocity_min"), delta=bars.get("delta_min"), gain=bars.get("gain_min", 0)), ""]
-        lines += _breakout_table(block["repos"], t("recent_none", why=t("no_breakouts")))
+        lines += _breakout_table(block["repos"], t("recent_none", why=t("no_breakouts")), featured)
+    shown = [(r["repo"], featured[r["repo"]]) for r in breakout_rows(bo) if r["repo"] in featured]
+    if shown:
+        lines += ["", t("featured_h"), ""]
+        lines += [t("featured_row", repo=repo, url=f["url"], channel=f["channel"], title=f["title"], published=f["published"],
+                    text=_cell(f["text"][:240]) or t("dash")) for repo, f in shown]
     return lines
 
 
@@ -296,6 +310,11 @@ def _status_lines(b: dict[str, dict], extra: dict[str, dict]) -> list[str]:
     ok = "" if bo.get("error") or bo.get("skipped") else t("st_breakout_ok", n=bo["searched"] + sum(c["searched"] for c in (bo.get("categories") or {}).values())) + \
         (t("st_breakout_first") if bo.get("first_run") else "")
     lines.append(t("st_breakout", state=_state(bo, ok)))
+    yt = b.get("youtube", {"skipped": True})
+    if not yt.get("skipped"):
+        ok = "" if yt.get("error") else t("st_youtube_ok", videos=len(yt["videos"]), segments=yt["segments"]) + \
+            (t("st_feeds_failed", failed="; ".join(yt["failed"])) if yt.get("failed") else "")
+        lines.append(t("st_youtube", state=_state(yt, ok)))
     sl = b.get("seller", {"skipped": True})
     if not sl.get("skipped"):
         lines.append(t("st_sellers", state=_state(sl, "" if sl.get("error") else t("st_sellers_ok", links=sl["links"], old=sl.get("old", 0), new=sl["new"]))))
@@ -337,7 +356,7 @@ def daily(cfg: dict, lead: list[dict], b: dict[str, dict], gsc: dict, rev: dict,
         rows = recent.get("rows") or []
         lines += [f"- **{r['term']}**: {r['note']}" for r in rows] if rows \
             else [t("recent_none", why=recent.get("error") or t("no_new_names"))]
-    lines += _breakout_lines(b["breakout"], cfg)
+    lines += _breakout_lines(b["breakout"], cfg, extra.get("featured") or {})
     lines += _new_site_lines(b.get("newsite", {"skipped": True}), cfg)
     lines += _revenue_lines(b.get("revenue", {"skipped": True}), cfg)
     lines += _asks_lines(b.get("ask", {"skipped": True}), cfg)

@@ -28,6 +28,7 @@ Issues = "https://github.com/zhuyansen/new-term-radar/issues"
 [project.optional-dependencies]
 mail = ["markdown>=3.5"]
 mcp = ["mcp>=1.2"]
+youtube = ["yt-dlp"]
 
 [project.scripts]
 new-term-radar = "new_term_radar.__main__:main"

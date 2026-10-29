@@ -1,7 +1,8 @@
 FROM python:3.12-slim
 
-# The radar needs only the standard library; markdown is for --mail.
-RUN pip install --no-cache-dir "markdown>=3.5" \
+# The radar needs only the standard library; markdown is for --mail, yt-dlp for the
+# video context (radar/youtube.py). yt-dlp is pinned: bump it when YouTube breaks it.
+RUN pip install --no-cache-dir "markdown>=3.5" "yt-dlp==2026.10.26" \
  && useradd --create-home --uid 1000 radar \
  && mkdir /data && chown radar /data
 

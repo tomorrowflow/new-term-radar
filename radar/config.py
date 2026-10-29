@@ -38,6 +38,7 @@ DEFAULTS = {
         {"name": "Cole Medin", "url": "https://www.youtube.com/feeds/videos.xml?playlist_id=UULFMwVTLZIRRUyyVrkjDpn4pA", "role": "lead"},
         {"name": "Sam Witteveen", "url": "https://www.youtube.com/feeds/videos.xml?playlist_id=UULF55ODQSvARtgSyc8ThfiepQ", "role": "lead"},
         {"name": "Matt Pocock", "url": "https://www.youtube.com/feeds/videos.xml?playlist_id=UULFswG6FSbgZjbWtdf_hMLaow", "role": "confirm"}]},
+    "youtube": {"window_days": 14, "ipv6": False, "channels": [{"name": "GitHub Awesome", "id": "UC9Rrud-8CaHokDtK9FszvRg"}]},
     "review": {"after_days": 14, "per_day": 5},
     "usecases": {"per_day": 5, "model": "claude-sonnet-4-6", "min_volume": 50, "trends_max": 10, "recheck_days": 3,
                  "location_code": 2840, "benchmark": "gpts", "min_daily": 300, "related": True, "related_geo": "US",

@@ -1,3 +1,4 @@
 # The radar itself needs only the Python standard library (3.10+).
 markdown>=3.5        # only for --mail
+yt-dlp==2026.10.26   # only for the video context (radar/youtube.py); bump when YouTube breaks it
 # mcp>=1.2          # only for the MCP server (python -m radar.mcp_server)

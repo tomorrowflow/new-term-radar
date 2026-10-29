@@ -9,7 +9,8 @@ Signals:
   ① hn        names new to Hacker News stories and Show HN (daily only; no key)
   ① reddit    names new to the day's top Reddit posts of your subreddits (daily only; no key)
   ① feeds     names new to the blogs, newsletters and YouTube channels in feeds.sources (daily only)
-  ② breakout  one new GitHub repo taking off on its own
+  ② breakout  one new GitHub repo taking off on its own; 📺 links to the second a channel in
+              youtube.channels (GitHub Awesome) showed it
   ③ sitemaps  pages other sites added since the last run
   ③ newsites  domains registered in the last 90 days that already rank (weekly; AIsa)
   ⑥ revenue   products people pay for, growing fastest or newly listed (weekly; TrustMRR key)
@@ -45,10 +46,10 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from . import asks, breakout, config, feeds, gsc, hn, new_sites, notify, pains, reddit, report, review, revenue, seller_history, sellers, sitemaps, sources, store, usecases
+from . import asks, breakout, config, feeds, gsc, hn, new_sites, notify, pains, reddit, report, review, revenue, seller_history, sellers, sitemaps, sources, store, usecases, youtube
 from .i18n import t
 
-SKIPPABLE = {"x", "hf", "hn", "reddit", "feeds", "breakout", "sitemaps", "newsites", "revenue", "asks", "sellers", "gsc", "review", "judge", "usecases", "tutorials"}
+SKIPPABLE = {"x", "hf", "hn", "reddit", "feeds", "breakout", "sitemaps", "newsites", "revenue", "asks", "sellers", "gsc", "review", "judge", "usecases", "tutorials", "youtube"}
 
 
 def run(fn, skip: bool = False) -> dict:
@@ -85,6 +86,7 @@ def cmd_sources(args, cfg: dict, state: Path) -> int:
 
 def cmd_daily(args, cfg: dict, state: Path) -> int:
     weekly = args.new_sites or date.today().weekday() == cfg["new_sites"]["weekday"]
+    conn = store.connect(state)
     blocks = {
         "x": run(lambda: sources.x_new(cfg, state), "x" in args.skip),
         "hf": run(lambda: sources.hf_new(cfg, state), "hf" in args.skip),
@@ -92,6 +94,7 @@ def cmd_daily(args, cfg: dict, state: Path) -> int:
         "reddit": run(lambda: reddit.reddit_new(cfg, state), "reddit" in args.skip),
         "feeds": run(lambda: feeds.feeds_new(cfg, state), "feeds" in args.skip),
         "breakout": run(lambda: breakout.breakouts(cfg, state), "breakout" in args.skip),
+        "youtube": run(lambda: youtube.read_new(cfg, conn), "youtube" in args.skip),
         "sitemap": run(lambda: sitemaps.diff(cfg, state), "sitemaps" in args.skip),
         "newsite": run(lambda: new_sites.new_sites(cfg, state), "newsites" in args.skip or not weekly),
         "revenue": run(lambda: revenue.products(cfg, state), "revenue" in args.skip or not (
@@ -103,8 +106,9 @@ def cmd_daily(args, cfg: dict, state: Path) -> int:
     }
     found = run(lambda: gsc.gsc_new(cfg), "gsc" in args.skip)
     lead, judged = report.leads(cfg, blocks)
-    conn = store.connect(state)
     extra = {"judge": judged, "record": run(lambda: {"recorded": store.record(conn, report.to_record(cfg, lead))})}
+    # A breakout repo a channel already walked through links to that second of the video.
+    extra["featured"] = run(lambda: youtube.featured(conn, [r["repo"] for r in report.breakout_rows(blocks["breakout"])]))
     # What the viewers of a widely shared walkthrough ask for: the one-click tool behind a ⚡ lead.
     extra["tutorials"] = run(lambda: pains.tutorial_asks(cfg, report.named(cfg, lead)),
                              "tutorials" in args.skip or not cfg["tutorials"]["max_leads"])
@@ -122,7 +126,8 @@ def cmd_daily(args, cfg: dict, state: Path) -> int:
     text = report.daily(cfg, lead, blocks, found, rev, summ, extra)
     if args.out:
         Path(args.out).with_suffix(".json").write_text(json.dumps(
-            {"leads": lead, **blocks, "gsc": found, "review": rev, "summary": summ, "keywords": extra["usecases"]}, ensure_ascii=False, indent=1, default=str))
+            {"leads": lead, **blocks, "gsc": found, "review": rev, "summary": summ, "keywords": extra["usecases"],
+             "featured": extra["featured"]}, ensure_ascii=False, indent=1, default=str))
     _finish(args, text, f"New-term radar {date.today()}")
     return 0
 

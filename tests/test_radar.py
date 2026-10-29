@@ -1,6 +1,8 @@
 """The radar's pure logic: name extraction, signal scoring, the store, the judge's parsing,
 the review's verdict, the reports. Network calls are not exercised here."""
 import json
+
+import pytest
 import re
 import time
 import urllib.parse
@@ -521,7 +523,7 @@ def test_a_repo_breaking_out_in_two_categories_is_one_term_and_snapshots_every_f
 def test_report_renders_a_table_per_category(cfg):
     row = {"repo": "a/homebox", "stars": 150, "velocity": 30, "delta": None, "age_days": 5, "description": "nas", "new": True}
     bo = {"repos": [], "categories": {"ai": {"searched": 0, "repos": []}, "self-hosted": {"searched": 1, "repos": [row]}}}
-    text = "\n".join(report._breakout_lines(bo, cfg))
+    text = "\n".join(report._breakout_lines(bo, cfg, {}))
     assert "self-hosted (topics: self-hosted, selfhosted" in text and "[a/homebox](https://github.com/a/homebox)" in text
     assert "#### ② ai" in text and "None (no breakout repos)" in text
 
@@ -1680,3 +1682,68 @@ def test_page_words_reads_a_gzipped_head_cut_short(monkeypatch):
             return False
     monkeypatch.setattr(sellers.urllib.request, "urlopen", lambda req, timeout: Response())
     assert sellers.page_words("captions-demo.app", 400) == ("NotchLive — Live Captions", "Captions for your Mac")
+
+
+from radar import youtube  # noqa: E402
+
+AWESOME = """This is GitHub Trending Today #56. 35 trending open-source projects on GitHub right now.
+
+Text version link: https://githubawesome.com/github-trending-today-56/
+
+00:00 - Introduction
+00:11 - learnharness https://github.com/amosblomqvist/learnharness
+00:36 - tstack https://github.com/t3dotgg/tstack
+14:40 - Outro"""
+
+
+def test_youtube_segments_run_from_one_repo_line_to_the_next():
+    assert youtube.segments(AWESOME, 900) == [
+        {"start": 11, "end": 36, "repo": "amosblomqvist/learnharness", "name": "learnharness"},
+        {"start": 36, "end": 880, "repo": "t3dotgg/tstack", "name": "tstack"}]
+    assert youtube.segments("1:02:03 - big https://github.com/a/b/", 4000)[0]["start"] == 3723
+
+
+def _fake_youtube(monkeypatch, videos):
+    """videos: {video_id: info dict or Exception}; captions are the info's "caps"."""
+    feed = _yt([(f"GitHub Trending Today #{i}", f"https://www.youtube.com/watch?v={vid}", _iso(24 * i), "")
+                for i, vid in enumerate(videos, 1)])
+    monkeypatch.setattr(youtube, "_fetch", lambda url: feed)
+
+    def info(vid):
+        if isinstance(videos[vid], Exception):
+            raise videos[vid]
+        return videos[vid]
+    monkeypatch.setattr(youtube, "_read", lambda vid, ipv6: (info(vid), videos[vid].get("caps")))
+
+
+def test_youtube_keeps_segments_with_what_was_said_and_retries_a_failed_video(cfg, tmp_path, monkeypatch):
+    cfg["youtube"] = {"window_days": 14, "channels": [{"name": "GitHub Awesome", "id": "UCabc"}]}
+    caps = [(10900, "Introducing"), (11500, "Learn"), (11800, " Harness is a desktop app"), (20000, "\nwhere agents teach you."), (37000, "tstack is")]
+    videos = {"v1": {"description": AWESOME, "duration": 900, "caps": caps}, "v2": OSError("HTTP Error 429")}
+    _fake_youtube(monkeypatch, videos)
+    conn = store.connect(tmp_path)
+    out = youtube.read_new(cfg, conn)
+    assert out["segments"] == 2 and len(out["videos"]) == 1 and "429" in out["failed"][0]
+    f = youtube.featured(conn, ["AmosBlomqvist/LearnHarness", "x/y"])
+    assert list(f) == ["AmosBlomqvist/LearnHarness"]
+    assert f["AmosBlomqvist/LearnHarness"]["text"] == "Learn Harness is a desktop app where agents teach you."
+    assert f["AmosBlomqvist/LearnHarness"]["url"] == "https://youtu.be/v1?t=11"
+    videos["v2"] = {"description": "", "duration": 600}
+    again = youtube.read_new(cfg, conn)
+    assert [v["title"] for v in again["videos"]] == ["GitHub Trending Today #2"] and again["segments"] == 0
+
+
+def test_youtube_fails_only_when_no_channel_feed_is_read(cfg, tmp_path, monkeypatch):
+    cfg["youtube"] = {"window_days": 14, "channels": [{"name": "GitHub Awesome", "id": "UCabc"}]}
+    monkeypatch.setattr(youtube, "_fetch", lambda url: (_ for _ in ()).throw(OSError("down")))
+    with pytest.raises(RuntimeError, match="no channel feed"):
+        youtube.read_new(cfg, store.connect(tmp_path))
+
+
+def test_breakout_table_links_a_featured_repo_to_its_second_of_the_video(cfg):
+    row = {"repo": "a/homebox", "stars": 150, "velocity": 30, "delta": None, "age_days": 5, "description": "nas", "new": True}
+    seg = {"channel": "GitHub Awesome", "title": "GitHub Trending Today #56", "published": "2026-10-27",
+           "url": "https://youtu.be/v1?t=11", "text": "Homebox keeps your NAS tidy."}
+    text = "\n".join(report._breakout_lines({"repos": [row], "categories": {}}, cfg, {"a/homebox": seg}))
+    assert "[a/homebox](https://github.com/a/homebox) [📺](https://youtu.be/v1?t=11) |" in text
+    assert "(2026-10-27): Homebox keeps your NAS tidy." in text

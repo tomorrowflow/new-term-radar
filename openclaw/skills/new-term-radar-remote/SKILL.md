@@ -81,7 +81,7 @@ A keyword table row has `phrase`, `kind` (`name` or `generic`), `names`, `new`, 
 ## Deliver
 
 1. Today's new names, strongest first: what each is, where it was seen (X, Hugging Face, HN, Reddit, a feed such as Simon Willison or a YouTube channel, a GitHub breakout and its category, a sitemap) and how strongly, and one link.
-   Give the GitHub breakout tables by category (general, ai, self-hosted) with each repo's stars a day and gain since yesterday.
+   Give the GitHub breakout tables by category (general, ai, self-hosted) with each repo's stars a day and gain since yesterday. A 📺 after a repo links to the second a YouTube channel (GitHub Awesome) showed it; the report quotes what the channel said under the tables, so use those words to say what the repo does.
 2. The priority table, sorted prioritize, then watch, then skip, with one short reason per row from the fields above.
 3. The long-tails, the co-searched names and every caveat that applies.
 4. Two or three lines of advice. Search volume data runs about two months behind.
