@@ -1,6 +1,6 @@
 ---
 name: new-term-radar-remote
-description: Names of new AI models, products and repositories seen in the last 24 hours (X, Hugging Face, GitHub, sitemaps), and a keyword priority table for them sized against Google Ads volume and Google Trends, with prioritize, watch or skip. Use when the user wants today's new AI keywords, an AI trend radar, keyword research on names they already have, or what people complain about for a kind of AI tool. Talks to a new-term-radar container over HTTP with curl.
+description: Names of new AI models, products and repositories seen in the last 24 hours (X, Hugging Face, Hacker News, Reddit, GitHub breakouts overall and per category such as ai and self-hosted, sitemaps), and a keyword priority table for them sized against Google Ads volume and Google Trends, with prioritize, watch or skip. Use when the user wants today's new AI keywords, an AI trend radar, keyword research on names they already have, or what people complain about for a kind of AI tool. Talks to a new-term-radar container over HTTP with curl.
 metadata: {"openclaw": {"emoji": "📡", "requires": {"bins": ["curl"], "env": ["RADAR_URL", "RADAR_API_TOKEN"]}, "primaryEnv": "RADAR_API_TOKEN"}}
 ---
 
@@ -15,9 +15,24 @@ curl -fsS "$RADAR_URL/health"
 
 If `/health` fails, stop and tell the user the container is not reachable at `$RADAR_URL`. A 401 means the token in OpenClaw does not match `RADAR_API_TOKEN` in the container's `.env`.
 
+## Always read fresh
+
+The radar runs on its own every morning, so an answer from an earlier turn is stale by the next day. For any question about what the radar found, call the API in this turn. Never repeat names, tables or caveats from earlier messages, and say the run date of what you report.
+
+## Free: today's scheduled report
+
+For "what did the radar find today" and similar, start here. The scheduled daily run is a job like any other:
+
+```bash
+ID=$(curl -fsS -H "$AUTH" "$RADAR_URL/jobs" | grep -oE '"id": "[^"]+", "command": "daily", "by": "[^"]+", "status": "done"' | head -1 | cut -d'"' -f4)
+curl -fsS -H "$AUTH" "$RADAR_URL/jobs/$ID"
+```
+
+`GET /jobs` lists newest first. Take the first `daily` job with `"status": "done"`, and check its `finished` date. If it is not today, say when the last run was. `output.report_markdown` holds the report and `GET /jobs/$ID/report.json` the full data.
+
 ## Free: what the radar already kept
 
-Start here. It reads the database that the scheduled runs fill. It costs nothing and returns at once.
+Leads across several days. It reads the database that the scheduled runs fill. It costs nothing and returns at once.
 
 ```bash
 curl -fsS -H "$AUTH" "$RADAR_URL/leads?days=7"
@@ -65,7 +80,8 @@ A keyword table row has `phrase`, `kind` (`name` or `generic`), `names`, `new`, 
 
 ## Deliver
 
-1. Today's new names, strongest first: what each is, where it was seen and how strongly, and one link.
+1. Today's new names, strongest first: what each is, where it was seen (X, Hugging Face, HN, Reddit, a GitHub breakout and its category, a sitemap) and how strongly, and one link.
+   Give the GitHub breakout tables by category (general, ai, self-hosted) with each repo's stars a day and gain since yesterday.
 2. The priority table, sorted prioritize, then watch, then skip, with one short reason per row from the fields above.
 3. The long-tails, the co-searched names and every caveat that applies.
 4. Two or three lines of advice. Search volume data runs about two months behind.
