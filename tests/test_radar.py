@@ -304,6 +304,116 @@ class _Resp:
         return self.body
 
 
+# --- ① feeds: names new to the blogs, newsletters and channels you follow --------------------
+
+def _iso(hours_ago):
+    return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+
+
+def _rss(items):
+    body = "".join(f"<item><title>{title}</title><link>{url}</link><pubDate>{when}</pubDate>"
+                   f"<description>&lt;p&gt;{text}&lt;/p&gt;</description></item>" for title, url, when, text in items)
+    return f'<?xml version="1.0"?><rss version="2.0"><channel>{body}</channel></rss>'.encode()
+
+
+def _yt(items):
+    body = "".join(f'<entry><title>{title}</title><link rel="alternate" href="{url}"/><published>{when}</published>'
+                   f'<media:group><media:description>{text}</media:description></media:group></entry>'
+                   for title, url, when, text in items)
+    return (b'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">'
+            + body.encode() + b"</feed>")
+
+
+def config_feeds(sources, model="m"):
+    return {"feeds": {**config.DEFAULTS["feeds"], "sources": sources}, "judge": {**config.DEFAULTS["judge"], "model": model}}
+
+
+def _fake_feeds(monkeypatch, bodies, names):
+    """bodies: {url: bytes or Exception}; names: {headline: [names]}, what the model answers."""
+    import radar.feeds as fd
+
+    def fetch(url):
+        b = bodies[url]
+        if isinstance(b, Exception):
+            raise b
+        return b
+
+    def chat(model, system, user, max_tokens=0):
+        return json.dumps([{"i": it["i"], "names": names.get(it["headline"], [])} for it in json.loads(user)])
+    monkeypatch.setattr(fd, "_fetch", fetch)
+    monkeypatch.setattr(fd.aisa, "chat", chat)
+    return fd
+
+
+def test_feeds_parse_rss_atom_and_youtube_items():
+    import radar.feeds as fd
+    rss = fd._items(_rss([("Welcome Le Chonk: Mistral Large 4", "https://hf.co/blog/a", "Tue, 27 Oct 2026 10:00:00 GMT", "big")]))
+    yt = fd._items(_yt([("They actually did it... (Kimi K3.1)", "https://youtu.be/x", "2026-10-28T09:00:00+00:00", "Kimi K3.1 is out")]))
+    assert rss == [{"title": "Welcome Le Chonk: Mistral Large 4", "url": "https://hf.co/blog/a",
+                    "when": datetime(2026, 10, 27, 10, tzinfo=timezone.utc), "text": "big"}]
+    assert yt[0]["text"] == "Kimi K3.1 is out" and yt[0]["when"].tzinfo is not None
+
+
+def test_feeds_report_a_lead_sources_name_once_and_hold_a_digests_until_a_second_source(tmp_path, monkeypatch):
+    snap.save(tmp_path / "feeds_vocab.json.gz", {"opus 5.5": date.today().isoformat()})
+    blog, digest, other = "https://blog/feed", "https://digest/feed", "https://other/feed"
+    bodies = {blog: _rss([("Mistral Large 4 and Opus 5.5", "https://blog/1", _iso(3), "")]),
+              digest: _rss([("[AINews] Quillnet tops the charts", "https://digest/1", _iso(5), "")]),
+              other: _rss([])}
+    names = {"Mistral Large 4 and Opus 5.5": ["mistral large 4", "opus 5.5"], "[AINews] Quillnet tops the charts": ["quillnet"],
+             "Quillnet, hands on": ["quillnet"]}
+    fd = _fake_feeds(monkeypatch, bodies, names)
+    cfg = config_feeds([{"name": "Blog", "url": blog, "role": "lead"}, {"name": "Digest", "url": digest, "role": "confirm"},
+                        {"name": "Other", "url": other, "role": "confirm"}])
+    out = fd.feeds_new(cfg, tmp_path)
+    assert [r["term"] for r in out["terms"]] == ["mistral large 4"]
+    assert out["terms"][0]["note"] == "Feeds: Blog" and out["terms"][0]["posts"][0]["url"] == "https://blog/1"
+    assert out["names_by"] == "model" and out["items"] == 2
+
+    bodies[other] = _rss([("Quillnet, hands on", "https://other/1", _iso(1), "")])
+    out = fd.feeds_new(cfg, tmp_path)
+    assert [(r["term"], r["recent"]) for r in out["terms"]] == [("quillnet", 2)]
+    assert fd.feeds_new(cfg, tmp_path)["terms"] == []
+
+
+def test_feeds_first_run_seeds_from_older_items_and_still_reports(tmp_path, monkeypatch):
+    url = "https://blog/feed"
+    bodies = {url: _rss([("Granite Switch 4.1.1", "https://blog/new", _iso(2), ""),
+                         ("Granite Switch 4.1", "https://blog/old", _iso(24 * 10), ""),
+                         ("Older news on Granite Switch 4.1.1", "https://blog/older", _iso(24 * 90), "")])}
+    fd = _fake_feeds(monkeypatch, bodies, {"Granite Switch 4.1.1": ["granite switch 4.1.1"], "Granite Switch 4.1": ["granite switch 4.1"],
+                                           "Older news on Granite Switch 4.1.1": ["granite switch 4.1.1"]})
+    out = fd.feeds_new(config_feeds([{"name": "Blog", "url": url, "role": "lead"}]), tmp_path)
+    assert [r["term"] for r in out["terms"]] == ["granite switch 4.1.1"] and out["seeded"] == 1
+    assert set(snap.load(tmp_path / "feeds_vocab.json.gz")) == {"granite switch 4.1", "granite switch 4.1.1"}
+
+
+def test_feeds_without_a_model_fall_back_to_the_title_rules(tmp_path, monkeypatch):
+    snap.save(tmp_path / "feeds_vocab.json.gz", {})
+    url = "https://blog/feed"
+    fd = _fake_feeds(monkeypatch, {url: _rss([("Show HN: Quillnet - notes for agents", "https://blog/1", _iso(1), "")])}, {})
+    out = fd.feeds_new(config_feeds([{"name": "Blog", "url": url}], model=""), tmp_path)
+    assert out["names_by"] == "rules" and [r["term"] for r in out["terms"]] == ["quillnet"]
+
+
+def test_feeds_skip_a_failing_feed_and_fail_only_when_none_is_read(tmp_path, monkeypatch):
+    snap.save(tmp_path / "feeds_vocab.json.gz", {})
+    ok, bad = "https://ok/feed", "https://bad/feed"
+    bodies = {ok: _rss([("Quillnet", "https://ok/1", _iso(1), "")]), bad: OSError("down")}
+    fd = _fake_feeds(monkeypatch, bodies, {"Quillnet": ["quillnet"]})
+    out = fd.feeds_new(config_feeds([{"name": "Ok", "url": ok}, {"name": "Bad", "url": bad}]), tmp_path)
+    assert out["failed"] == ["Bad: OSError"] and out["feeds"] == 1 and out["terms"][0]["term"] == "quillnet"
+
+    (tmp_path / "feeds_vocab.json.gz").unlink()
+    bodies[ok] = OSError("down too")
+    try:
+        fd.feeds_new(config_feeds([{"name": "Ok", "url": ok}, {"name": "Bad", "url": bad}]), tmp_path)
+        assert False, "should raise"
+    except RuntimeError as e:
+        assert "no feed could be read" in str(e)
+    assert not (tmp_path / "feeds_vocab.json.gz").exists()
+
+
 def test_reddit_429_waits_the_ratelimit_reset_and_retries_once(monkeypatch):
     import radar.reddit as rd
     sleeps, answers = [], [_http_error(429, {"x-ratelimit-reset": "30"}), _Resp(b"ok")]

@@ -58,6 +58,7 @@
 | ① Hugging Face | 新进热门榜前 50 的模型和 Space（大家实际在试的 demo）；量化版、微调版和模型自己的 demo 归到同一个基础名下 | 无 | 免费 |
 | ① Hacker News | 近 48 小时内得分 50+（Show HN 为 15+）的故事里，过去 60 天没有出现在任何 50+ 故事中的新名字；Show HN 标题给出产品名；只在 `daily` 里跑 | 无 | 免费 |
 | ① Reddit | 你列出的子版块当天热门帖里，过去 60 天没有出现在任何热门帖中的新名字（默认 10 个 AI 和自托管相关版块）；读 Reddit 的 RSS，每分钟只能请求一次，所以一次运行要几分钟，首次约十分钟；只在 `daily` 里跑 | 无 | 免费 |
+| ① 订阅源 | `feeds.sources` 里的博客、简报和 YouTube 频道最近 48 小时内容中，过去 60 天没出现过的新名字。默认是 Simon Willison、Hugging Face 博客、Every 的 Vibe Check、Latent Space / AINews，以及 Matthew Berman、Theo、Cole Medin、Sam Witteveen、Matt Pocock 的频道。标题每个词都大写，大写规则认不出名字，所以由一个小模型从标题里读出名字。`lead` 源的名字直接报告；`confirm` 源（晚一天的汇总）要第二个源也提到才报告；只在 `daily` 里跑 | 判定模型的 AIsa key（没有时退回 HN 的标题规则，会漏掉大部分） | 每次不到 $0.01 |
 | ② GitHub 爆发 | 创建不到 14 天、平均每天涨 200 星以上，或比昨天多 400 星的仓库；另按分类 `ai`、`self-hosted` 各用更低的门槛再查一遍（自托管项目到不了每天 200 星），并要求比昨天至少多涨若干星，只列现在还在涨的；附带大家实际会搜的写法（「niko strata」） | 无（有 GitHub token 限额更高） | 免费 |
 | ③ 竞品 sitemap | 某个站新增的几个网址共用、而它的旧网址里很少出现的词。示例配置盯着 8 个 AI 工具导航站（toolify、aixploria、ai-bot.cn、opentools、dang.ai、clipfly、aitoptools、futurepedia）和 4 个 MCP、skill 目录 | 你列出的 sitemap | 免费 |
 | ③ 新站 | 近 90 天注册且首次被收录、已经有 20 个以上排名词的域名 | AIsa key | 每个查询约 $0.13，每周一次 |
@@ -222,7 +223,7 @@ python -m radar daily --skip x,hf --out report.md  # 其余全部，每天一次
 
 `sources` 只在有新名字时才写报告。`daily` 带 `--skip x,hf` 时，会列出 `sources` 在过去 24 小时记下的线索。如果你每天只跑一次，直接用 `python -m radar daily`，什么都不跳过。
 
-其他参数：`--skip` 可选 `x,hf,hn,reddit,breakout,sitemaps,newsites,gsc,review,judge,usecases`；`--new-sites` 让每周信号今天就跑；`--mail` 发邮件（见下）；`--state DIR` 指定数据库和快照的目录。
+其他参数：`--skip` 可选 `x,hf,hn,reddit,feeds,breakout,sitemaps,newsites,gsc,review,judge,usecases`；`--new-sites` 让每周信号今天就跑；`--mail` 发邮件（见下）；`--state DIR` 指定数据库和快照的目录。
 
 ## 报告长什么样
 
@@ -258,6 +259,7 @@ python -m radar daily --skip x,hf --out report.md  # 其余全部，每天一次
 | `judge` | `model`（AIsa 上任意对话模型）和 `min_score`（默认 0.5；老名字最多 0.4 分，所以要高于它） |
 | `hn` | `min_points`（默认 50）、`show_min_points`（Show HN，默认 15）、`window_hours`（48）、`vocab_days`（60） |
 | `reddit` | `subreddits`、`per_request`（每次请求合并的版块数，10）、`limit`（100）、`seed_pages`（首次运行取当月热门的页数，5）、`vocab_days`（60） |
+| `feeds` | `sources`（每项 `name`、RSS 或 Atom 地址 `url`、`role`：`lead` 或 `confirm`；YouTube 频道的长视频是 `https://www.youtube.com/feeds/videos.xml?playlist_id=UULF` 加去掉 `UC` 的频道 ID）、`window_hours`（48）、`vocab_days`（60） |
 | `breakout` | `window_days`、`min_stars`、`velocity_min`（每天涨星）、`delta_min`（比昨天多的星）、`categories`（分类名对应 `topics`、`min_stars`、`velocity_min`、`delta_min`、`gain_min`（还必须比昨天至少多的星）；默认 `ai` 和 `self-hosted`） |
 | `new_sites` | `queries`：名称和域名的 SQL LIKE 模式（`"%ai%"`），每个是一次付费查询；`weekday`（0 = 周一） |
 | `review` | `after_days`（14）和 `per_day`（每天复盘 5 条） |

@@ -1,6 +1,6 @@
 ---
 name: new-term-radar-remote
-description: Names of new AI models, products and repositories seen in the last 24 hours (X, Hugging Face, Hacker News, Reddit, GitHub breakouts overall and per category such as ai and self-hosted, sitemaps), and a keyword priority table for them sized against Google Ads volume and Google Trends, with prioritize, watch or skip. Use when the user wants today's new AI keywords, an AI trend radar, keyword research on names they already have, or what people complain about for a kind of AI tool. Talks to a new-term-radar container over HTTP with curl.
+description: Names of new AI models, products and repositories seen in the last 24 hours (X, Hugging Face, Hacker News, Reddit, AI blogs, newsletters and YouTube channels, GitHub breakouts overall and per category such as ai and self-hosted, sitemaps), and a keyword priority table for them sized against Google Ads volume and Google Trends, with prioritize, watch or skip. Use when the user wants today's new AI keywords, an AI trend radar, keyword research on names they already have, or what people complain about for a kind of AI tool. Talks to a new-term-radar container over HTTP with curl.
 metadata: {"openclaw": {"emoji": "📡", "requires": {"bins": ["curl"], "env": ["RADAR_URL", "RADAR_API_TOKEN"]}, "primaryEnv": "RADAR_API_TOKEN"}}
 ---
 
@@ -80,7 +80,7 @@ A keyword table row has `phrase`, `kind` (`name` or `generic`), `names`, `new`, 
 
 ## Deliver
 
-1. Today's new names, strongest first: what each is, where it was seen (X, Hugging Face, HN, Reddit, a GitHub breakout and its category, a sitemap) and how strongly, and one link.
+1. Today's new names, strongest first: what each is, where it was seen (X, Hugging Face, HN, Reddit, a feed such as Simon Willison or a YouTube channel, a GitHub breakout and its category, a sitemap) and how strongly, and one link.
    Give the GitHub breakout tables by category (general, ai, self-hosted) with each repo's stars a day and gain since yesterday.
 2. The priority table, sorted prioritize, then watch, then skip, with one short reason per row from the fields above.
 3. The long-tails, the co-searched names and every caveat that applies.
