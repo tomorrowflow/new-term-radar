@@ -378,6 +378,21 @@ def test_feeds_report_a_lead_sources_name_once_and_hold_a_digests_until_a_second
     assert fd.feeds_new(cfg, tmp_path)["terms"] == []
 
 
+def test_feeds_read_follow_builders_posts_as_their_authors(tmp_path, monkeypatch):
+    snap.save(tmp_path / "feeds_vocab.json.gz", {"opus 5.5": date.today().isoformat()})
+    url = "https://raw/feed-x.json"
+    tweet = lambda text, n: {"text": text, "url": f"https://x.com/s/{n}", "createdAt": _iso(n)}
+    body = json.dumps({"x": [{"handle": "swyx", "tweets": [tweet("Gemini 4 Argon is #1 on AAv5", 2)]},
+                             {"handle": "steipete", "tweets": [tweet("trying  Gemini 4 Argon\nin Codex", 3), {"text": "", "url": "u"}]}]}).encode()
+    fd = _fake_feeds(monkeypatch, {url: body}, {"Gemini 4 Argon is #1 on AAv5": ["gemini 4 argon"], "trying Gemini 4 Argon in Codex": ["gemini 4 argon"]})
+    out = fd.feeds_new(config_feeds([{"name": "follow-builders", "url": url, "format": "follow-builders", "role": "lead"}]), tmp_path)
+    assert [(r["term"], r["recent"]) for r in out["terms"]] == [("gemini 4 argon", 2)]
+    assert out["terms"][0]["note"] == "Feeds: @swyx, @steipete" and out["terms"][0]["posts"][0]["url"] == "https://x.com/s/3"   # oldest first
+    bad = _fake_feeds(monkeypatch, {url: b"not json"}, {})
+    with pytest.raises(RuntimeError, match="follow-builders: JSONDecodeError"):
+        bad.feeds_new(config_feeds([{"name": "follow-builders", "url": url, "format": "follow-builders"}]), tmp_path)
+
+
 def test_feeds_first_run_seeds_from_older_items_and_still_reports(tmp_path, monkeypatch):
     url = "https://blog/feed"
     bodies = {url: _rss([("Granite Switch 4.1.1", "https://blog/new", _iso(2), ""),

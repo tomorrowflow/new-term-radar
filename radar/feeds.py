@@ -15,6 +15,11 @@ Without a key it falls back to the Hacker News title rules, which miss most of t
 
 A YouTube channel's feed is https://www.youtube.com/feeds/videos.xml?playlist_id=UULF...
 (the channel id with UC replaced by UULF: long videos only, no Shorts).
+
+A source's `format` says how to read it: "rss" (RSS or Atom, the default) or
+"follow-builders", the feed-x.json that github.com/zarazhangrui/follow-builders commits
+every morning: a day of posts by the AI builders it follows on X, read without an X key.
+Each post counts as its author's (@swyx), so two builders naming a thing are two sources.
 """
 from __future__ import annotations
 
@@ -84,6 +89,20 @@ def _items(xml: bytes) -> list[dict]:
     return [it for it in out if it["title"] and it["when"]]
 
 
+def _builders(body: bytes) -> list[dict]:
+    """follow-builders' feed-x.json: {"x": [{"handle", "tweets": [{"text", "url", "createdAt"}]}]}."""
+    out = []
+    for b in json.loads(body).get("x", []):
+        for tw in b.get("tweets", []):
+            text = " ".join((tw.get("text") or "").split())
+            out.append({"title": text[:200], "url": tw.get("url", ""), "when": _when(tw.get("createdAt")), "text": text[:SNIPPET],
+                        "by": f"@{b['handle']}"})
+    return [it for it in out if it["title"] and it["when"]]
+
+
+FORMATS = {"rss": _items, "follow-builders": _builders}
+
+
 def _names(items: list[dict], model: str) -> str:
     """Sets it["names"] on every item. Returns how: "model", or "rules" with the reason the model was not used."""
     if model:
@@ -131,11 +150,11 @@ def feeds_new(cfg: dict, state: Path) -> dict:
     items, failed = {}, []
     for src in c["sources"]:
         try:
-            for it in _items(_fetch(src["url"])):
+            for it in FORMATS[src.get("format", "rss")](_fetch(src["url"])):
                 if it["when"] >= oldest:
-                    items.setdefault(it["url"] or f"{src['name']}:{it['title']}", {**it, "source": src["name"],
+                    items.setdefault(it["url"] or f"{src['name']}:{it['title']}", {**it, "source": it.get("by", src["name"]),
                                                                                   "role": src.get("role", "lead")})
-        except (OSError, ET.ParseError) as exc:
+        except (OSError, ET.ParseError, ValueError, KeyError) as exc:
             failed.append(f"{src['name']}: {type(exc).__name__}")
     if not c["sources"] or len(failed) == len(c["sources"]):
         raise RuntimeError("no feed could be read: " + "; ".join(failed))
