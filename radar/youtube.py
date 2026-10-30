@@ -7,10 +7,12 @@ per repo line: where it starts, a deep link to that second, and what the narrato
 until the next line (the video's own English captions). Segments live in radar.db, so a
 repo breaking out today can point to the video that showed it a week ago (featured()).
 
-yt-dlp reads the description and the caption track. YouTube rate-limits and asks some
-servers to sign in; a video that fails is skipped with its reason and tried again on the
-next run, while it is still in the window. A video without captions keeps its segments
-without text.
+yt-dlp lists a channel's long videos (the UULF playlist: the channel id with UC replaced,
+no Shorts) and reads each one's description and caption track. Not the channel's RSS feed:
+since late October 2026 feeds/videos.xml answers 404 for most channels most of the time.
+YouTube rate-limits and asks some servers to sign in; a video that fails is skipped with its
+reason and tried again on the next run, while it is still in the window. A video without
+captions keeps its segments without text. recent() lists the same way for feeds.py.
 """
 from __future__ import annotations
 
@@ -20,9 +22,9 @@ import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
 from .breakout import repo_term
-from .feeds import _fetch, _items
 
 TEXT_MAX = 1000
+LIST_MAX = 15
 _LINE = re.compile(r"^((?:\d{1,2}:)?\d{1,2}:\d{2})\s*-\s*(.*)$")
 _REPO = re.compile(r"^(.*?)\s*https?://github\.com/([\w.-]+/[\w.-]+?)/?$")
 
@@ -50,16 +52,36 @@ def segments(description: str, duration: int) -> list[dict]:
     return out
 
 
-def _read(video_id: str, ipv6: bool = False) -> tuple[dict, list[tuple[int, str]] | None]:
-    """The video's metadata, and (start ms, text) of its English captions as spoken, or None
-    when it has none. The original track (en-orig): the translated "en" track is rate-limited
-    far sooner. `ipv6` sends every request over IPv6: YouTube answers caption requests from
-    some servers' IPv4 addresses with 429 and serves the same server over IPv6."""
-    import yt_dlp  # only this context needs it; the radar runs without it
+def _ydl(ipv6: bool):
+    """`ipv6` sends every request over IPv6: YouTube answers caption requests from some
+    servers' IPv4 addresses with 429 and serves the same server over IPv6."""
+    import yt_dlp  # only YouTube needs it; the radar runs without it
 
-    opts = {"skip_download": True, "quiet": True, "no_warnings": True, **({"source_address": "::"} if ipv6 else {})}
-    with yt_dlp.YoutubeDL(opts) as y:
+    return yt_dlp.YoutubeDL({"skip_download": True, "quiet": True, "no_warnings": True, "extract_flat": "in_playlist",
+                             "playlistend": LIST_MAX, **({"source_address": "::"} if ipv6 else {})})
+
+
+def _list(channel_id: str, ipv6: bool = False) -> list[str]:
+    """The ids of the channel's latest long videos, newest first."""
+    with _ydl(ipv6) as y:
+        info = y.extract_info(f"https://www.youtube.com/playlist?list=UULF{channel_id[2:]}", download=False)
+    return [e["id"] for e in info.get("entries") or []]
+
+
+def _published(info: dict) -> datetime:
+    if info.get("timestamp"):
+        return datetime.fromtimestamp(info["timestamp"], timezone.utc)
+    return datetime.strptime(info["upload_date"], "%Y%m%d").replace(tzinfo=timezone.utc)
+
+
+def _read(video_id: str, ipv6: bool = False, captions: bool = True) -> tuple[dict, list[tuple[int, str]] | None]:
+    """The video's metadata, and (start ms, text) of its English captions as spoken, or None
+    when it has none (or `captions` is False). The original track (en-orig): the translated
+    "en" track is rate-limited far sooner."""
+    with _ydl(ipv6) as y:
         info = y.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+        if not captions:
+            return info, None
         tracks = info.get("subtitles", {}).get("en") or (info.get("automatic_captions") or {}).get("en-orig") or []
         url = next((f["url"] for f in tracks if f.get("ext") == "json3"), None)
         if not url:
@@ -79,32 +101,54 @@ def read_new(cfg: dict, conn: sqlite3.Connection) -> dict:
     known = {r[0] for r in conn.execute("SELECT video_id FROM videos")}
     read, failed, feeds_read = [], [], 0
     for ch in c["channels"]:
-        feed = f"https://www.youtube.com/feeds/videos.xml?playlist_id=UULF{ch['id'][2:]}"  # long videos, no Shorts
         try:
-            items = _items(_fetch(feed))
-        except Exception as exc:  # noqa: BLE001
-            failed.append(f"{ch['name']}: {type(exc).__name__}")
+            ids = _list(ch["id"], c.get("ipv6", False))
+        except Exception as exc:  # noqa: BLE001  yt-dlp's DownloadError
+            failed.append(f"{ch['name']}: {_reason(exc)}")
             continue
         feeds_read += 1
-        for it in items:
-            video_id = it["url"].rsplit("v=", 1)[-1]
-            if video_id in known or it["when"] < since:
+        for video_id in ids:
+            if video_id in known:
                 continue
             try:
                 info, caps = _read(video_id, c.get("ipv6", False))
             except Exception as exc:  # noqa: BLE001  yt-dlp's DownloadError, a 429, a sign-in check
-                failed.append(f"{it['title'][:40]}: {' '.join(str(exc).split())[:80]}")
+                failed.append(f"{video_id}: {_reason(exc)}")
                 continue
+            when = _published(info)
+            if when < since:
+                break  # newest first: the rest are older too
             segs = segments(info.get("description") or "", int(info.get("duration") or 0))
-            conn.execute("INSERT INTO videos VALUES (?,?,?,?,?,?,?)", (video_id, ch["name"], it["title"],
-                         it["when"].date().isoformat(), date.today().isoformat(), len(segs), caps is not None))
+            conn.execute("INSERT INTO videos VALUES (?,?,?,?,?,?,?)", (video_id, ch["name"], info["title"],
+                         when.date().isoformat(), date.today().isoformat(), len(segs), caps is not None))
             conn.executemany("INSERT OR REPLACE INTO video_segments VALUES (?,?,?,?,?)",
                              [(video_id, s["start"], s["repo"], s["name"], _said(caps or [], s["start"], s["end"])) for s in segs])
             conn.commit()
-            read.append({"channel": ch["name"], "title": it["title"], "segments": len(segs), "captions": caps is not None})
+            read.append({"channel": ch["name"], "title": info["title"], "segments": len(segs), "captions": caps is not None})
     if c["channels"] and not feeds_read:
         raise RuntimeError("no channel feed could be read: " + "; ".join(failed[:3]))
     return {"videos": read, "segments": sum(v["segments"] for v in read), "failed": failed}
+
+
+def recent(channel_id: str, since: datetime, ipv6: bool = False) -> list[dict]:
+    """The channel's long videos published since `since` as feed items (title, url, when, text),
+    without captions. Raises OSError with the reason when the channel or a video cannot be read."""
+    out = []
+    try:
+        for video_id in _list(channel_id, ipv6):
+            info, _ = _read(video_id, ipv6, captions=False)
+            when = _published(info)
+            if when < since:
+                break
+            out.append({"title": info["title"], "url": f"https://www.youtube.com/watch?v={video_id}", "when": when,
+                        "text": " ".join((info.get("description") or "").split())})
+    except Exception as exc:  # noqa: BLE001  yt-dlp's DownloadError
+        raise OSError(_reason(exc)) from exc
+    return out
+
+
+def _reason(exc: Exception) -> str:
+    return " ".join(str(exc).split())[:80] or type(exc).__name__
 
 
 def featured(conn: sqlite3.Connection, repos: list[str]) -> dict[str, dict]:

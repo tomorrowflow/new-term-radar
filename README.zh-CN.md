@@ -260,7 +260,7 @@ python -m radar daily --skip x,hf --out report.md  # 其余全部，每天一次
 | `judge` | `model`（AIsa 上任意对话模型）和 `min_score`（默认 0.5；老名字最多 0.4 分，所以要高于它） |
 | `hn` | `min_points`（默认 50）、`show_min_points`（Show HN，默认 15）、`window_hours`（48）、`vocab_days`（60） |
 | `reddit` | `subreddits`、`per_request`（每次请求合并的版块数，10）、`limit`（100）、`seed_pages`（首次运行取当月热门的页数，5）、`vocab_days`（60） |
-| `feeds` | `sources`（每项 `name`、RSS 或 Atom 地址 `url`、`role`：`lead` 或 `confirm`；YouTube 频道的长视频是 `https://www.youtube.com/feeds/videos.xml?playlist_id=UULF` 加去掉 `UC` 的频道 ID；`format`：默认 `rss`，或读 `feed-x.json` 的 `follow-builders`）、`window_hours`（48）、`vocab_days`（60） |
+| `feeds` | `sources`（每项 `name`、`role`：`lead` 或 `confirm`，以及 `format`：默认 `rss`，配 RSS 或 Atom 地址 `url`；`youtube`，配频道 `id`（`UC...`），由 yt-dlp 读取其长视频，因为 YouTube 自己的 RSS 多数时候返回 404；或 `follow-builders`，配其 `feed-x.json` 的 `url`）、`window_hours`（48）、`vocab_days`（60） |
 | `breakout` | `window_days`、`min_stars`、`velocity_min`（每天涨星）、`delta_min`（比昨天多的星）、`categories`（分类名对应 `topics`、`min_stars`、`velocity_min`、`delta_min`、`gain_min`（还必须比昨天至少多的星）；默认 `ai` 和 `self-hosted`） |
 | `youtube` | `channels`（每项 `name` 和频道 `id`，`UC...`）、`window_days`（14）：更早的视频不读、`ipv6`（false）：YouTube 请求走 IPv6；字幕报 429 时打开，YouTube 对部分服务器的 IPv4 地址会这样（Docker 里网络也要开 IPv6：`enable_ipv6: true`） |
 | `new_sites` | `queries`：名称和域名的 SQL LIKE 模式（`"%ai%"`），每个是一次付费查询；`weekday`（0 = 周一） |

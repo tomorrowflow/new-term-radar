@@ -13,13 +13,12 @@ capitalisation rules that find names in posts return fragments here. A small mod
 judge's) reads each headline with the first lines of its item and lists the names in it.
 Without a key it falls back to the Hacker News title rules, which miss most of them.
 
-A YouTube channel's feed is https://www.youtube.com/feeds/videos.xml?playlist_id=UULF...
-(the channel id with UC replaced by UULF: long videos only, no Shorts).
-
-A source's `format` says how to read it: "rss" (RSS or Atom, the default) or
-"follow-builders", the feed-x.json that github.com/zarazhangrui/follow-builders commits
-every morning: a day of posts by the AI builders it follows on X, read without an X key.
-Each post counts as its author's (@swyx), so two builders naming a thing are two sources.
+A source's `format` says how to read it: "rss" (RSS or Atom, the default, from `url`);
+"youtube", a channel's long videos (by channel `id`, read with yt-dlp, youtube.recent();
+YouTube's own RSS feeds answer 404 most of the time); or "follow-builders", the
+feed-x.json that github.com/zarazhangrui/follow-builders commits every morning: a day of
+posts by the AI builders it follows on X, read without an X key. Each post counts as its
+author's (@swyx), so two builders naming a thing are two sources.
 """
 from __future__ import annotations
 
@@ -32,7 +31,7 @@ from email.utils import parsedate_to_datetime
 from html import unescape
 from pathlib import Path
 
-from . import UA, aisa, snap
+from . import UA, aisa, snap, youtube
 from .hn import title_names
 from .i18n import t
 from .terms import MIN_LEN, _drop_nested
@@ -100,7 +99,13 @@ def _builders(body: bytes) -> list[dict]:
     return [it for it in out if it["title"] and it["when"]]
 
 
-FORMATS = {"rss": _items, "follow-builders": _builders}
+# Each reads a source into items: (source, cfg, since: the window's start).
+FORMATS = {
+    "rss": lambda src, cfg, since: _items(_fetch(src["url"])),
+    "follow-builders": lambda src, cfg, since: _builders(_fetch(src["url"])),
+    # Only the window: a video costs a request, and the vocabulary is seeded from the other sources.
+    "youtube": lambda src, cfg, since: youtube.recent(src["id"], since, cfg["youtube"].get("ipv6", False)),
+}
 
 
 def _names(items: list[dict], model: str) -> str:
@@ -150,7 +155,7 @@ def feeds_new(cfg: dict, state: Path) -> dict:
     items, failed = {}, []
     for src in c["sources"]:
         try:
-            for it in FORMATS[src.get("format", "rss")](_fetch(src["url"])):
+            for it in FORMATS[src.get("format", "rss")](src, cfg, since):
                 if it["when"] >= oldest:
                     items.setdefault(it["url"] or f"{src['name']}:{it['title']}", {**it, "source": it.get("by", src["name"]),
                                                                                   "role": src.get("role", "lead")})

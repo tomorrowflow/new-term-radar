@@ -1719,16 +1719,17 @@ def test_youtube_segments_run_from_one_repo_line_to_the_next():
 
 
 def _fake_youtube(monkeypatch, videos):
-    """videos: {video_id: info dict or Exception}; captions are the info's "caps"."""
-    feed = _yt([(f"GitHub Trending Today #{i}", f"https://www.youtube.com/watch?v={vid}", _iso(24 * i), "")
-                for i, vid in enumerate(videos, 1)])
-    monkeypatch.setattr(youtube, "_fetch", lambda url: feed)
+    """videos: {video_id: info dict or Exception}, newest first, one a day (23 hours old, 47, ...); captions are the info's "caps"."""
+    monkeypatch.setattr(youtube, "_list", lambda channel_id, ipv6: list(videos))
+    now = datetime.now(timezone.utc).timestamp()
 
-    def info(vid):
+    def read(vid, ipv6, captions=True):
         if isinstance(videos[vid], Exception):
             raise videos[vid]
-        return videos[vid]
-    monkeypatch.setattr(youtube, "_read", lambda vid, ipv6: (info(vid), videos[vid].get("caps")))
+        i = list(videos).index(vid) + 1
+        info = {"title": f"GitHub Trending Today #{i}", "timestamp": now - 86400 * i + 3600, **videos[vid]}
+        return info, info.get("caps") if captions else None
+    monkeypatch.setattr(youtube, "_read", read)
 
 
 def test_youtube_keeps_segments_with_what_was_said_and_retries_a_failed_video(cfg, tmp_path, monkeypatch):
@@ -1750,9 +1751,35 @@ def test_youtube_keeps_segments_with_what_was_said_and_retries_a_failed_video(cf
 
 def test_youtube_fails_only_when_no_channel_feed_is_read(cfg, tmp_path, monkeypatch):
     cfg["youtube"] = {"window_days": 14, "channels": [{"name": "GitHub Awesome", "id": "UCabc"}]}
-    monkeypatch.setattr(youtube, "_fetch", lambda url: (_ for _ in ()).throw(OSError("down")))
+    monkeypatch.setattr(youtube, "_list", lambda channel_id, ipv6: (_ for _ in ()).throw(OSError("down")))
     with pytest.raises(RuntimeError, match="no channel feed"):
         youtube.read_new(cfg, store.connect(tmp_path))
+
+
+def test_youtube_stops_at_the_first_video_older_than_the_window(cfg, tmp_path, monkeypatch):
+    cfg["youtube"] = {"window_days": 2, "channels": [{"name": "GitHub Awesome", "id": "UCabc"}]}
+    _fake_youtube(monkeypatch, {"v1": {"description": AWESOME, "duration": 900}, "v2": {}, "v3": {}, "v4": {}})
+    read = []
+    real = youtube._read
+    monkeypatch.setattr(youtube, "_read", lambda vid, ipv6, captions=True: read.append(vid) or real(vid, ipv6, captions))
+    out = youtube.read_new(cfg, store.connect(tmp_path))
+    assert [v["title"] for v in out["videos"]] == ["GitHub Trending Today #1", "GitHub Trending Today #2"]
+    assert read == ["v1", "v2", "v3"]
+
+
+def test_feeds_read_a_youtube_channel_inside_the_window(tmp_path, monkeypatch):
+    snap.save(tmp_path / "feeds_vocab.json.gz", {})
+    _fake_youtube(monkeypatch, {"a1": {"title": "Quillnet is wild", "description": "hands on"}, "a2": {"title": "Old one", "timestamp": time.time() - 86400 * 3},
+                                "a3": {"title": "Older"}})
+    fd = _fake_feeds(monkeypatch, {}, {"Quillnet is wild": ["quillnet"], "Old one": ["oldname"]})
+    cfg = config_feeds([{"name": "Theo", "format": "youtube", "id": "UCt"}])
+    cfg["youtube"] = {"ipv6": False}
+    out = fd.feeds_new(cfg, tmp_path)
+    assert [r["term"] for r in out["terms"]] == ["quillnet"] and out["items"] == 1
+    assert out["terms"][0]["posts"][0]["url"] == "https://www.youtube.com/watch?v=a1"
+    _fake_youtube(monkeypatch, {"a1": OSError("HTTP Error 429")})
+    with pytest.raises(RuntimeError, match="Theo: OSError"):
+        fd.feeds_new(cfg, tmp_path)
 
 
 def test_breakout_table_links_a_featured_repo_to_its_second_of_the_video(cfg):
