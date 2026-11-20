@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -25,6 +26,7 @@ MAX_CALLS = 20      # the router's own limit per batch
 BATCH = 5           # what call_all sends at once, about 50 s a batch
 TIMEOUT = 240
 CHAT_TIMEOUT = 90
+NO_TEMPERATURE = re.compile(r"^claude-[a-z]+-5")   # Claude 5 models answer 400 to `temperature`
 
 
 class AisaError(RuntimeError):
@@ -93,8 +95,11 @@ def call_all(calls: list[dict]) -> tuple[dict[str, dict], int]:
 
 
 def chat(model: str, system: str, user: str, max_tokens: int = 1500) -> str:
-    body = _post(CHAT, {"model": model, "temperature": 0, "max_tokens": max_tokens, "messages": [
-        {"role": "system", "content": system}, {"role": "user", "content": user}]}, CHAT_TIMEOUT)
+    req = {"model": model, "max_tokens": max_tokens, "messages": [
+        {"role": "system", "content": system}, {"role": "user", "content": user}]}
+    if not NO_TEMPERATURE.match(model):
+        req["temperature"] = 0
+    body = _post(CHAT, req, CHAT_TIMEOUT)
     try:
         return body["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError) as exc:
