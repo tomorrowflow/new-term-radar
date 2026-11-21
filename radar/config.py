@@ -27,7 +27,7 @@ DEFAULTS = {
     "hn": {"min_points": 50, "show_min_points": 15, "window_hours": 48, "vocab_days": 60},
     "reddit": {"subreddits": ["LocalLLaMA", "singularity", "ClaudeAI", "OpenAI", "ChatGPT", "StableDiffusion", "comfyui",
                             "MachineLearning", "artificial", "selfhosted"],
-               "per_request": 10, "limit": 100, "seed_pages": 5, "vocab_days": 60},
+               "vocab_days": 60},
     "feeds": {"window_hours": 48, "vocab_days": 60, "sources": [
         {"name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/", "role": "lead"},
         {"name": "Hugging Face blog", "url": "https://huggingface.co/blog/feed.xml", "role": "lead"},
