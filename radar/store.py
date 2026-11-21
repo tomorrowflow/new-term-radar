@@ -1,7 +1,7 @@
 """The radar's memory: every lead it reported, in one SQLite file (state/radar.db).
 
 record()          upserts today's leads.
-due()             leads old enough to check in Google Trends and not checked yet.
+due()             leads old enough to check in DataForSEO Trends and not checked yet.
 save_verdict()    hit / miss / no_data and how many days the radar was ahead.
 recent_sources()  X and Hugging Face leads the frequent job kept since yesterday.
 summary()         hit rate and median lead per signal.
@@ -107,9 +107,15 @@ def record(conn: sqlite3.Connection, rows: list[dict], today: date | None = None
     return len(rows)
 
 
-def due(conn: sqlite3.Connection, today: date, after_days: int, limit: int) -> list[tuple[str, date, list[str]]]:
-    rows = conn.execute("SELECT term, first_seen, variants FROM leads WHERE reviewed_at IS NULL AND first_seen <= ? "
-                        "ORDER BY first_seen, term LIMIT ?", ((today - timedelta(days=after_days)).isoformat(), limit)).fetchall()
+MAX_REVIEW_AGE_DAYS = 90
+
+
+def due(conn: sqlite3.Connection, today: date, after_days: int, limit: int,
+        max_age_days: int = MAX_REVIEW_AGE_DAYS) -> list[tuple[str, date, list[str]]]:
+    oldest = (today - timedelta(days=max_age_days)).isoformat()
+    cutoff = (today - timedelta(days=after_days)).isoformat()
+    rows = conn.execute("SELECT term, first_seen, variants FROM leads WHERE reviewed_at IS NULL AND first_seen >= ? AND first_seen <= ? "
+                        "ORDER BY first_seen, term LIMIT ?", (oldest, cutoff, limit)).fetchall()
     return [(t, date.fromisoformat(f), json.loads(v)) for t, f, v in rows]
 
 

@@ -49,7 +49,7 @@ from xml.sax.saxutils import escape
 from . import __main__ as cli
 from . import notify
 
-WEEKLY = {"asks": "--asks", "sellers": "--sellers", "new-sites": "--new-sites", "revenue": "--revenue"}
+WEEKLY = {"asks": "--asks", "sellers": "--sellers", "new-sites": "--new-sites", "revenue": "--revenue", "feeds": "--feeds"}
 TIMEOUT_S = 45 * 60
 GRACE = timedelta(minutes=10)
 FEED_ITEMS = 30

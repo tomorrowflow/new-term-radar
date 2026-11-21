@@ -1,207 +1,247 @@
-"""Signal ①, feeds: names new to the blogs, newsletters and YouTube channels you follow.
+"""Signal ⑨: what was just listed where people launch, rank and talk about things.
 
-feeds_new   names in the items of the last `window_hours` of the RSS and Atom feeds in
-            config.json ("feeds.sources") that no item of the last `vocab_days` named. A
-            source's `role` is "lead" (it names new things first: Simon Willison, the Hugging
-            Face blog, launch-day reviews) or "confirm" (a digest that repeats them a day later:
-            AINews). A name from a lead source is reported; a name only digests carry is
-            reported once two sources carry it. The first run seeds the vocabulary from the
-            older items the feeds still hold, so it reports from day one.
+Each feed reads one list and the radar keeps what it has not seen before (state/feeds.json.gz);
+the first run of a feed only takes its snapshot. Names go to the leads like any other signal.
 
-Headlines are title case ("Gemini 4 Argon Puts Google Back On the Frontier"), so the
-capitalisation rules that find names in posts return fragments here. A small model (the
-judge's) reads each headline with the first lines of its item and lists the names in it.
-Without a key it falls back to the Hacker News title rules, which miss most of them.
+Free:
+- Product Hunt's Atom feed of featured launches;
+- Show HN on Hacker News (Algolia's API), posts with `hn_points` or more;
+- OpenRouter's model list and Civitai's newest checkpoints: new model names;
+- the App Store's top-grossing apps per genre (Apple's RSS; the legacy feed, which has grossing
+  and genres, first, the marketing-tools one when it fails);
+- new entries in awesome lists on GitHub (`awesome`: raw README URLs).
 
-A source's `format` says how to read it: "rss" (RSS or Atom, the default, from `url`);
-"youtube", a channel's long videos (by channel `id`, read with yt-dlp, youtube.recent();
-YouTube's own RSS feeds answer 404 most of the time); or "follow-builders", the
-feed-x.json that github.com/zarazhangrui/follow-builders commits every morning: a day of
-posts by the AI builders it follows on X, read without an X key. Each post counts as its
-author's (@swyx), so two builders naming a thing are two sources.
+Paid, small:
+- `taaft`: There's An AI For That's own just-released list, day by day (GoAnyAPI, 5 credits a day): the
+  directory answers bots with a Cloudflare challenge, so its pages are otherwise only reachable through
+  `google_new`'s site: query.
+- `google_new`: pages Google indexed in the last week under a path (DataForSEO through AIsa, about
+  $0.02 a path, AIsa media credits): Figma community plugins, There's An AI For That tool pages,
+  Chrome Web Store items. The sites themselves are not touched: Figma answers bots with 403 and
+  There's An AI For That with a Cloudflare challenge.
+- `trending`: trending searches on Douyin and TikTok, trending TikTok hashtags and Reddit's
+  trending searches (TikHub through AIsa, $0.001 each), kept only when they name a tool, an
+  effect, a template or AI.
+- `rising`: the root-word method. For each seed ("ai generator", "ai detector", "ai converter" ...)
+  the searches Google Trends calls rising next to it this month (GoAnyAPI, 6 credits a seed).
 """
 from __future__ import annotations
 
+import html
 import json
 import re
+import time
 import urllib.request
-import xml.etree.ElementTree as ET
-from datetime import date, datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
-from html import unescape
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timezone
 from pathlib import Path
 
-from . import UA, aisa, snap, youtube
-from .hn import title_names
+from . import UA, aisa, goanyapi, snap
 from .i18n import t
-from .terms import MIN_LEN, _drop_nested
 
-TOP = 30
-CHUNK = 40
-SNIPPET = 300
-_ATOM = "{http://www.w3.org/2005/Atom}"
-_MEDIA = "{http://search.yahoo.com/mrss/}"
-_TAG = re.compile(r"<[^>]+>")
-SYSTEM = (
-    "You read headlines from AI blogs, newsletters and YouTube channels for a radar that looks for new product "
-    "names. For each item, list the NAMES of specific products, models, tools, libraries, companies, papers or "
-    "techniques it mentions: 'gemini 4 argon', 'mistral large 4', 'opus 5.5', 'granite switch 4.1.1', 'duet' "
-    "(when the item is about a product called Duet). Not names: generic words and categories ('agents', "
-    "'local ai', 'token spend'), people, the publication itself, or fragments of the headline. Keep a version "
-    "with its name. Lowercase. Most items name zero to three things.\n"
-    "Answer with JSON only, one object per item, in the same order: [{\"i\": 0, \"names\": [\"opus 5.5\"]}, ...]"
-)
+TIMEOUT = 20
+SERP = "post_dataforseo_serp_google_organic_live_regular"
+# "AI换脸" has no word boundary between I and 换, so the Latin words are fenced by letters, not by \b
+TOOLISH = re.compile(r"(?<![a-z])(ai|app|tool|generator|filter|effect|template|prompt|editor|maker|bot|gpt|agent|plugin|extension|"
+                     r"converter|translator|avatar)s?(?![a-z])|特效|模板|滤镜|工具|生成|剪辑|一键|智能|插件", re.I)
+LABEL = {"producthunt": "Product Hunt", "hn": "Show HN", "openrouter": "OpenRouter", "civitai": "Civitai", "appstore": "App Store",
+         "awesome": "awesome list", "taaft": "There's An AI For That", "google_new": "Google, new this week",
+         "trending": "trending", "rising": "rising with"}
 
 
-def _fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=40) as res:
+def get(url: str) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json, application/xml;q=0.9, */*;q=0.8"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as res:
         return res.read()
 
 
-def _when(text: str) -> datetime | None:
-    text = (text or "").strip()
+def recent(stamp: str, days: int = 2) -> bool:
+    """Whether an ISO date or datetime falls in the last `days` days."""
     try:
-        d = parsedate_to_datetime(text) if text[:1].isalpha() else datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
-    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+        when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    when = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - when).days < days
 
 
-def _plain(html: str) -> str:
-    return " ".join(unescape(_TAG.sub(" ", html or "")).split())[:SNIPPET]
+def clean(text: str, n: int = 200) -> str:
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", text or "")).split())[:n]
 
 
-def _items(xml: bytes) -> list[dict]:
-    """RSS 2.0 items or Atom entries (YouTube's included): title, url, when, the first lines."""
-    root, out = ET.fromstring(xml), []
-    for e in root.iter(_ATOM + "entry"):
-        link = e.find(_ATOM + "link")
-        body = e.findtext(_ATOM + "summary") or e.findtext(_ATOM + "content") or e.findtext(f"{_MEDIA}group/{_MEDIA}description")
-        out.append({"title": e.findtext(_ATOM + "title"), "url": link.get("href", "") if link is not None else "",
-                    "when": _when(e.findtext(_ATOM + "published") or e.findtext(_ATOM + "updated")), "text": body})
-    for e in root.iter("item"):
-        out.append({"title": e.findtext("title"), "url": (e.findtext("link") or "").strip(),
-                    "when": _when(e.findtext("pubDate")), "text": e.findtext("description")})
-    for it in out:
-        it["title"], it["text"] = " ".join((it["title"] or "").split()), _plain(it["text"])
-    return [it for it in out if it["title"] and it["when"]]
-
-
-def _builders(body: bytes) -> list[dict]:
-    """follow-builders' feed-x.json: {"x": [{"handle", "tweets": [{"text", "url", "createdAt"}]}]}."""
+def producthunt(c: dict) -> tuple[list[dict], int]:
+    xml = get("https://www.producthunt.com/feed").decode("utf-8", "replace")
     out = []
-    for b in json.loads(body).get("x", []):
-        for tw in b.get("tweets", []):
-            text = " ".join((tw.get("text") or "").split())
-            out.append({"title": text[:200], "url": tw.get("url", ""), "when": _when(tw.get("createdAt")), "text": text[:SNIPPET],
-                        "by": f"@{b['handle']}"})
-    return [it for it in out if it["title"] and it["when"]]
+    for entry in re.findall(r"<entry>(.*?)</entry>", xml, re.S):
+        title = re.search(r"<title>(.*?)</title>", entry, re.S)
+        link = re.search(r'<link[^>]+href="([^"]+)"', entry)
+        content = re.search(r"<content[^>]*>(.*?)</content>", entry, re.S)
+        published = re.search(r"<published>(.*?)</published>", entry)
+        if title and link:
+            out.append({"key": link.group(1), "name": clean(title.group(1), 80), "url": link.group(1),
+                        "about": clean(html.unescape(content.group(1)) if content else ""), "fresh": recent(published.group(1) if published else "")})
+    return out, 0
 
 
-# Each reads a source into items: (source, cfg, since: the window's start).
-FORMATS = {
-    "rss": lambda src, cfg, since: _items(_fetch(src["url"])),
-    "follow-builders": lambda src, cfg, since: _builders(_fetch(src["url"])),
-    # Only the window: a video costs a request, and the vocabulary is seeded from the other sources.
-    "youtube": lambda src, cfg, since: youtube.recent(src["id"], since, cfg["youtube"].get("ipv6", False)),
+def show_hn(c: dict) -> tuple[list[dict], int]:
+    since = int(time.time()) - 2 * 86400
+    url = ("https://hn.algolia.com/api/v1/search_by_date?tags=show_hn&hitsPerPage=100&numericFilters="
+           f"created_at_i>{since},points>={c['hn_points']}")
+    out = []
+    for h in json.loads(get(url)).get("hits", []):
+        m = re.match(r"show hn:\s*(.+?)(?:\s+[–—-]\s+|:\s+|$)", h.get("title") or "", re.I)
+        if m:
+            out.append({"key": h["objectID"], "name": m.group(1).strip()[:80], "url": h.get("url") or
+                        f"https://news.ycombinator.com/item?id={h['objectID']}", "about": clean(h.get("title") or ""),
+                        "score": h.get("points") or 0, "fresh": True})          # the query asks for the last two days
+    return out, 0
+
+
+def openrouter(c: dict) -> tuple[list[dict], int]:
+    since = time.time() - 7 * 86400
+    models = json.loads(get("https://openrouter.ai/api/v1/models")).get("data", [])
+    return [{"key": m["id"], "name": (m.get("name") or m["id"]).split(": ", 1)[-1][:80], "url": f"https://openrouter.ai/{m['id']}",
+             "about": clean(m.get("description") or ""), "fresh": True} for m in models if (m.get("created") or 0) >= since], 0
+
+
+def civitai(c: dict) -> tuple[list[dict], int]:
+    data = json.loads(get("https://civitai.com/api/v1/models?sort=Newest&types=Checkpoint&limit=50"))
+    return [{"key": str(m["id"]), "name": m["name"][:80], "url": f"https://civitai.com/models/{m['id']}",
+             "about": clean(m.get("description") or ""),
+             "fresh": recent(((m.get("modelVersions") or [{}])[0] or {}).get("publishedAt") or "")} for m in data.get("items", [])], 0
+
+
+def appstore(c: dict) -> tuple[list[dict], int]:
+    out = []
+    for genre in c["app_genres"]:
+        try:
+            feed = json.loads(get(f"https://itunes.apple.com/us/rss/topgrossingapplications/limit=50/genre={genre}/json"))["feed"]
+            for e in feed.get("entry", []):
+                out.append({"key": e["id"]["attributes"]["im:id"], "name": e["im:name"]["label"][:80],
+                            "url": e["id"]["label"], "about": clean(e.get("summary", {}).get("label", ""))})
+        except (OSError, ValueError, KeyError):
+            data = json.loads(get("https://rss.marketingtools.apple.com/api/v2/us/apps/top-free/50/apps.json"))
+            out += [{"key": a["id"], "name": a["name"][:80], "url": a["url"], "about": ""} for a in data["feed"]["results"]]
+            break
+    return out, 0
+
+
+ENTRY = re.compile(r"^\s*[-*]\s+\[([^\]]{2,80})\]\((https?://[^)\s]+)\)\s*[-–—:]?\s*(.*)$", re.M)
+
+
+def awesome(c: dict) -> tuple[list[dict], int]:
+    out = []
+    for url in c["awesome"]:
+        text = get(url).decode("utf-8", "replace")
+        out += [{"key": link, "name": clean(name, 80), "url": link, "about": clean(desc)} for name, link, desc in ENTRY.findall(text)]
+    return out, 0
+
+
+def taaft(c: dict) -> tuple[list[dict], int]:
+    """There's An AI For That's own "just released" list, through GoAnyAPI (5 credits a day).
+
+    `google_new` finds those pages with a `site:` query because the directory answers bots with a Cloudflare
+    challenge; this feed is the list itself, with the category and the description written for each tool.
+    """
+    if not goanyapi.key():
+        return [], 0
+    rows, cost = goanyapi.taaft_just_released()
+    return [{"key": r["url"] or r["name"].lower(), "name": clean(r["name"], 80), "url": r["url"],
+             "about": clean(r["about"]), "where": r["category"], "fresh": recent(r["released"])} for r in rows], cost
+
+
+def google_new(c: dict) -> tuple[list[dict], int]:
+    """Pages Google indexed in the last seven days under each path."""
+    out, cost = [], 0
+    for path in c["google_new"]:
+        data, spent = aisa.call([{"call_id": "g", "tool": SERP, "arguments": {"body": [{
+            "keyword": f"site:{path}", "location_code": 2840, "language_code": "en", "depth": 100, "search_param": "tbs=qdr:w"}]}}])
+        cost += spent
+        res = ((((data.get("g") or {}).get("tasks") or [{}])[0].get("result") or [{}])[0]) or {}
+        for i in res.get("items") or []:
+            if i.get("type") == "organic" and i.get("url"):
+                name = re.split(r"\s+[|–—-]\s+", i.get("title") or "")[0]
+                out.append({"key": i["url"], "name": clean(name, 80), "url": i["url"], "about": clean(i.get("description") or ""),
+                            "where": path, "fresh": True})                   # indexed in the last seven days
+    return out, cost
+
+
+TRENDING = {
+    "douyin": ("get_tikhub_douyin_app_v3_fetch_hot_search_list", {}, lambda d: [w.get("word") for k in ("word_list", "trending_list")
+                                                                                 for w in (d.get("data") or {}).get(k) or []]),
+    "tiktok": ("get_tikhub_tiktok_web_fetch_trending_searchwords", {}, lambda d: [w.get("trendingSearchWord") for w in d.get("trending_search_words") or []]),
+    "tiktok_tags": ("post_tikhub_tiktok_ads_get_trends_hashtag_list", {"country_code": "US", "time_range": 7, "limit": 50},
+                    lambda d: [w.get("hashtagName") for w in d.get("items") or []]),
+    "reddit": ("get_tikhub_reddit_app_fetch_trending_searches", {"need_format": True},
+               lambda d: [w.get("displayQuery") for w in d.get("trendingQueries") or []]),
 }
 
 
-def _names(items: list[dict], model: str) -> str:
-    """Sets it["names"] on every item. Returns how: "model", or "rules" with the reason the model was not used."""
-    if model:
-        try:
-            for start in range(0, len(items), CHUNK):
-                chunk = items[start:start + CHUNK]
-                user = json.dumps([{"i": i, "headline": it["title"], "start": it["text"][:200]} for i, it in enumerate(chunk)],
-                                  ensure_ascii=False)
-                for i, found in _parse(aisa.chat(model, SYSTEM, user, max_tokens=3000), len(chunk)).items():
-                    chunk[i]["names"] = found
-            for it in items:
-                it.setdefault("names", [])
-            return "model"
-        except aisa.AisaError as exc:
-            how = f"rules ({str(exc)[:80]})"
-    else:
-        how = "rules"
-    for it in items:
-        it["names"] = title_names(it["title"])
-    return how
+def trending(c: dict) -> tuple[list[dict], int]:
+    calls = [{"call_id": k, "tool": TRENDING[k][0], "arguments": TRENDING[k][1]} for k in c["trending"]]
+    data, cost = aisa.call(calls)
+    out = []
+    for k in c["trending"]:
+        words = TRENDING[k][2](((data.get(k) or {}).get("data")) or {})
+        out += [{"key": f"{k}:{w}", "name": w[:80], "url": "", "about": "", "where": k, "fresh": True} for w in words if w and TOOLISH.search(w)]
+    return out, cost
 
 
-def _parse(answer: str, n: int) -> dict[int, list[str]]:
-    m = re.search(r"\[.*\]", answer, re.S)
-    try:
-        rows = json.loads(m.group(0)) if m else []
-    except ValueError:
-        return {}
-    out = {}
-    for r in rows if isinstance(rows, list) else []:
-        try:
-            i, found = int(r["i"]), r["names"]
-        except (KeyError, TypeError, ValueError):
-            continue
-        if 0 <= i < n and isinstance(found, list):
-            out[i] = list(dict.fromkeys(" ".join(str(x).lower().split()) for x in found
-                                        if isinstance(x, str) and len(x.strip()) >= MIN_LEN))[:5]
-    return out
+def rising(c: dict) -> tuple[list[dict], int]:
+    """The rising searches next to each root word ("ai generator", "ai detector" ...): GoAnyAPI Trends, 6 credits a seed,
+    four seeds at a time."""
+    out, cost = [], 0
+    with ThreadPoolExecutor(4) as pool:
+        answers = list(pool.map(goanyapi.related_queries, c["seeds"]))
+    for seed, (groups, spent) in zip(c["seeds"], answers):
+        cost += spent
+        head = [w for w in seed.split() if w != "ai"] or seed.split()
+        # Trends answered "ai generator" with "best pizza near me" and "how to bake a cake" on 2026-10-15: a rising
+        # search that does not share the seed's word is the day's general news, not something people build tools for
+        out += [{"key": q, "name": q, "url": "", "about": "", "where": seed, "fresh": True} for q in groups.get("rising", [])
+                if q != seed and any(w in q.split() for w in head)]
+    return out, cost
 
 
-def feeds_new(cfg: dict, state: Path) -> dict:
+FEEDS = {"producthunt": producthunt, "hn": show_hn, "openrouter": openrouter, "civitai": civitai, "appstore": appstore,
+         "awesome": awesome, "taaft": taaft, "google_new": google_new, "trending": trending, "rising": rising}
+
+
+def feeds(cfg: dict, state: Path, today: date | None = None, weekly: bool = False) -> dict:
+    """Every enabled feed; the `weekly` ones (paid searches) only on `weekday` or when asked."""
     c = cfg["feeds"]
-    now = datetime.now(timezone.utc)
-    since, oldest = now - timedelta(hours=c["window_hours"]), now - timedelta(days=c["vocab_days"])
-    items, failed = {}, []
-    for src in c["sources"]:
-        try:
-            for it in FORMATS[src.get("format", "rss")](src, cfg, since):
-                if it["when"] >= oldest:
-                    items.setdefault(it["url"] or f"{src['name']}:{it['title']}", {**it, "source": it.get("by", src["name"]),
-                                                                                  "role": src.get("role", "lead")})
-        except (OSError, ET.ParseError, ValueError, KeyError) as exc:
-            failed.append(f"{src['name']}: {type(exc).__name__}")
-    if not c["sources"] or len(failed) == len(c["sources"]):
-        raise RuntimeError("no feed could be read: " + "; ".join(failed))
-
-    path = state / "feeds_vocab.json.gz"
-    vocab: dict[str, str] | None = snap.load(path)
-    first_run = vocab is None
-    recent = [it for it in items.values() if it["when"] >= since]
-    older = [it for it in items.values() if it["when"] < since]
-    how = _names(recent + older if first_run else recent, cfg["judge"]["model"])
-    if first_run:
-        vocab = {n: it["when"].date().isoformat() for it in older for n in it["names"]}
-
-    found: dict[str, list[dict]] = {}
-    for it in recent:
-        for name in it["names"]:
-            if name not in vocab:
-                found.setdefault(name, []).append(it)
-    rows = []
-    for name, group in found.items():
-        sources = list(dict.fromkeys(it["source"] for it in group))
-        lead = any(it["role"] == "lead" for it in group)
-        if not lead and len(sources) < 2:
+    today = today or date.today()
+    weekly = weekly or today.weekday() == c["weekday"]
+    path = state / "feeds.json.gz"
+    seen: dict[str, str] = snap.load(path) or {}
+    out = {"read": {}, "new": {}, "first_run": [], "errors": [], "cost_micros": 0, "terms": []}
+    for name in c["enabled"]:
+        if name in c["weekly"] and not weekly:
             continue
-        group.sort(key=lambda it: it["when"])
-        rows.append({"term": name, "recent": len(sources), "lead": lead, "first": group[0]["when"],
-                     "note": t("note_feeds", sources=", ".join(sources)),
-                     "examples": [f"{it['source']}: {it['title'][:80]}" for it in group],
-                     "posts": [{"account": it["source"], "text": it["title"], "url": it["url"], "likes": 0} for it in group]})
-    rows.sort(key=lambda r: (-r["recent"], -r["lead"], r["first"]))
-    rows = _drop_nested(rows)
-    for r in rows:
-        del r["lead"], r["first"]
-
-    # A name only one digest carried stays out of the vocabulary: a lead source or a second
-    # digest may still report it while the item is in the window.
-    today, cutoff = date.today().isoformat(), (date.today() - timedelta(days=c["vocab_days"])).isoformat()
-    waiting = {name for name in found if name not in {r["term"] for r in rows}}
-    for it in recent:
-        for name in it["names"]:
-            if name not in waiting:
-                vocab[name] = today
-    snap.save(path, {n: d for n, d in vocab.items() if d >= cutoff})
-    return {"items": len(recent), "feeds": len(c["sources"]) - len(failed), "failed": failed, "names_by": how,
-            "seeded": len(older) if first_run else 0, "first_run": False, "terms": rows[:TOP]}
+        try:
+            items, cost = FEEDS[name](c)
+        except (OSError, ValueError, KeyError, TypeError, aisa.AisaError, goanyapi.GoAnyError) as exc:
+            out["errors"].append(f"{name}: {str(exc)[:120]}")
+            continue
+        out["cost_micros"] += cost
+        out["read"][name] = len(items)
+        first = not any(k.startswith(name + ":") for k in seen)
+        fresh = []
+        for i in items:
+            key = f"{name}:{i['key']}"
+            if key not in seen:
+                fresh.append(i)
+                seen[key] = today.isoformat()
+        if first:               # the snapshot is taken; what the source itself dates as recent is news already
+            out["first_run"].append(name)
+            fresh = [i for i in fresh if i.get("fresh")]
+            if not fresh:
+                continue
+        fresh = sorted(fresh, key=lambda i: -(i.get("score") or 0))[:c["max_per_feed"]]
+        out["new"][name] = fresh
+        out["terms"] += [{"term": i["name"].lower(), "recent": 1, "about": (i["url"], i["about"]) if i["url"] else None,
+                          "examples": [f"{LABEL[name]}{' · ' + i['where'] if i.get('where') else ''}: {i['name']}"],
+                          "note": t("note_feed", where=LABEL[name])} for i in fresh]
+    snap.save(path, seen)
+    out["terms"] = [{k: v for k, v in r.items() if v is not None} for r in out["terms"]]
+    return out

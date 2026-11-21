@@ -68,10 +68,12 @@ def score(rows: list[dict], model: str) -> dict:
         try:
             scores = parse(aisa.chat(model, SYSTEM, user), len(chunk))
         except aisa.AisaError as exc:
-            return {"judged": judged, "error": str(exc)[:160]}
+            spent = aisa.take_chat_cost()
+            return {"judged": judged, "error": str(exc)[:160], **({"cost_micros": spent} if spent else {})}
         for i, (s, old) in scores.items():
             chunk[i]["named"] = min(s, OLD_MAX) if old else s
             if old:
                 chunk[i]["old"] = True
         judged += len(scores)
-    return {"judged": judged}
+    spent = aisa.take_chat_cost()
+    return {"judged": judged, **({"cost_micros": spent} if spent else {})}

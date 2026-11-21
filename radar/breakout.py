@@ -53,6 +53,10 @@ def repo_term(name: str) -> str:
     return re.sub(r"[-_.]+", " ", name).strip().lower()
 
 
+def _speed(row: dict) -> int:
+    return -max(row["velocity"], row["delta"] or 0)
+
+
 def score(repos: list[dict], before: dict[str, int] | None, now: datetime,
           velocity_min: int = 200, delta_min: int = 400, gain_min: int = 0) -> list[dict]:
     """Repos that break out, fastest first. `repos` items are GitHub search results.
@@ -74,9 +78,16 @@ def score(repos: list[dict], before: dict[str, int] | None, now: datetime,
         owner, name = r["full_name"].split("/", 1)
         out.append({"repo": r["full_name"], "owner": owner, "name": name, "stars": stars,
                     "velocity": round(velocity), "delta": delta, "age_days": round(age, 1),
-                    "description": (r.get("description") or "")[:120]})
-    out.sort(key=lambda x: -max(x["velocity"], x["delta"] or 0))
+                    "born": created.date().isoformat(), "description": (r.get("description") or "")[:120]})
+    out.sort(key=_speed)
     return out[:TOP]
+
+
+def shown(rows: list[dict]) -> list[dict]:
+    """At most TOP rows, fastest first: the first-time breakouts (the TOP fastest of them),
+    then the fastest of those reported before. Rows need 'new'."""
+    new = [r for r in rows if r["new"]][:TOP]
+    return sorted(new + [r for r in rows if not r["new"]][:TOP - len(new)], key=_speed)
 
 
 def variants(row: dict, display: str) -> list[str]:
@@ -103,32 +114,58 @@ def _search(query: str) -> list[dict]:
 
 def breakouts(cfg: dict, state: Path) -> dict:
     c = cfg["breakout"]
-    since = (date.today() - timedelta(days=c["window_days"])).isoformat()
+    today_d = date.today()
+    since = (today_d - timedelta(days=c["window_days"])).isoformat()
     base = f"created:>={since}"
-    table = [("general", f"{base} stars:>={c['min_stars']}", c)] + [
-        (name, f"{base} stars:>={cat['min_stars']} topic:{','.join(cat['topics'])}", cat)
+    repos = _search(f"{base} stars:>={c['min_stars']}")
+    seen = {r["full_name"] for r in repos}
+    if c.get("young_days") and c.get("young_min_stars"):
+        young_since = (today_d - timedelta(days=c["young_days"])).isoformat()
+        try:
+            for r in _search(f"created:>={young_since} stars:>={c['young_min_stars']}"):
+                if r["full_name"] not in seen:
+                    repos.append(r)
+                    seen.add(r["full_name"])
+        except (OSError, ValueError):
+            pass
+    if c.get("late_days") and c.get("late_min_stars"):
+        late_from = (today_d - timedelta(days=c["late_days"])).isoformat()
+        late_to = (today_d - timedelta(days=c["window_days"] + 1)).isoformat()
+        try:
+            for r in _search(f"created:{late_from}..{late_to} stars:>={c['late_min_stars']}"):
+                if r["full_name"] not in seen:
+                    repos.append(r)
+                    seen.add(r["full_name"])
+        except (OSError, ValueError):
+            pass
+    table = [("general", repos, c)] + [
+        (name, _search(f"{base} stars:>={cat['min_stars']} topic:{','.join(cat['topics'])}"), cat)
         for name, cat in (c.get("categories") or {}).items()]
     path = state / "gh_stars.json.gz"
     before = snap.load(path)
     now = datetime.now(timezone.utc)
     stars: dict[str, int] = {}
-    found: dict[str, dict] = {}
-    for name, query, bars in table:
-        repos = _search(query)
-        stars.update({r["full_name"]: r["stargazers_count"] for r in repos})
-        found[name] = {"searched": len(repos), "repos": score(repos, before, now, bars["velocity_min"], bars["delta_min"], bars.get("gain_min", 0))}
+    scored: dict[str, tuple[int, list[dict]]] = {}
+    for name, found, bars in table:
+        stars.update({r["full_name"]: r["stargazers_count"] for r in found})
+        rows = [row for r in found for row in score([r], before, now, bars["velocity_min"], bars["delta_min"], bars.get("gain_min", 0))]
+        scored[name] = (len(found), sorted(rows, key=_speed))
     if stars:
         snap.save(path, stars)
     flagged_path = state / "gh_flagged.json.gz"
     flagged: dict[str, str] = snap.load(flagged_path) or {}
-    today = date.today().isoformat()
-    terms, seen = [], set()
-    for name, block in found.items():
-        for row in block["repos"]:
+    today = today_d.isoformat()
+    for _, rows in scored.values():
+        for row in rows:
             row["new"] = row["repo"] not in flagged
-            if not row["new"] or row["repo"] in seen:
+    blocks = {name: {"searched": n, "repos": shown(rows)} for name, (n, rows) in scored.items()}
+    terms, done = [], set()
+    for name, block in blocks.items():
+        for row in block["repos"]:
+            flagged.setdefault(row["repo"], today)
+            if not row["new"] or row["repo"] in done:
                 continue
-            seen.add(row["repo"])
+            done.add(row["repo"])
             try:
                 display = _get(f"/users/{row['owner']}").get("name") or ""
             except OSError:
@@ -137,13 +174,11 @@ def breakouts(cfg: dict, state: Path) -> dict:
             gain = t("note_breakout_gain", delta=row["delta"]) if row["delta"] is not None else ""
             label = "" if name == "general" else t("note_breakout_cat", category=name)
             terms.append({"term": row["variants"][0], "recent": 1, "variants": row["variants"], "repo": row["repo"],
+                          "born": row.get("born", ""),
                           "note": t("note_breakout", repo=row["repo"], stars=row["stars"], velocity=row["velocity"], gain=gain, cat=label),
                           "examples": [f"{row['repo']}: {row['description']}"]})
-    for block in found.values():
-        for row in block["repos"]:
-            flagged.setdefault(row["repo"], today)
-    cutoff = (date.today() - timedelta(days=FLAGGED_DAYS)).isoformat()
+    cutoff = (today_d - timedelta(days=FLAGGED_DAYS)).isoformat()
     snap.save(flagged_path, {k: v for k, v in flagged.items() if v >= cutoff})
-    general = found.pop("general")
+    general = blocks.pop("general")
     return {"searched": general["searched"], "first_run": before is None, "repos": general["repos"], "terms": terms,
-            "window_days": c["window_days"], "categories": found}
+            "window_days": c["window_days"], "categories": blocks}
