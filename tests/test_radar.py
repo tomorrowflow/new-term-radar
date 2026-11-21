@@ -379,6 +379,16 @@ def test_feeds_report_a_lead_sources_name_once_and_hold_a_digests_until_a_second
     assert fd.follow_new(cfg, tmp_path)["terms"] == []
 
 
+def test_follow_tells_the_model_who_published_each_item(tmp_path, monkeypatch):
+    snap.save(tmp_path / "feeds_vocab.json.gz", {})
+    url = "https://kilo.example/feed"
+    fd = _fake_feeds(monkeypatch, {url: _rss([("Kilo Desktop Is Generally Available", "https://kilo/1", _iso(1), "")])}, {})
+    sent = []
+    monkeypatch.setattr(fd.aisa, "chat", lambda model, system, user, max_tokens=0: sent.append(json.loads(user)) or "[]")
+    fd.follow_new(config_feeds([{"name": "Kilo", "url": url}]), tmp_path)
+    assert sent[0][0]["source"] == "Kilo" and sent[0][0]["headline"] == "Kilo Desktop Is Generally Available"
+
+
 def test_feeds_read_follow_builders_posts_as_their_authors(tmp_path, monkeypatch):
     snap.save(tmp_path / "feeds_vocab.json.gz", {"opus 5.5": date.today().isoformat()})
     url = "https://raw/feed-x.json"

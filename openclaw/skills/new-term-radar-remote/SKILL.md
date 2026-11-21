@@ -106,7 +106,13 @@ When the user asks what the radar found, also check the newsletters in your own 
 
    A message with a `List-Unsubscribe` header is a newsletter. Skip every other message, and do not read it further.
 
-3. From each newsletter, list the specific new things it names: AI models, products, tools, repositories, and launches by a company. Do not list a company that is only named for a deal, a lawsuit, funding or a person. Keep the story's headline and its link as the newsletter shows them. Take at most 24 names in all, the most specific first.
+3. From each newsletter, list the specific new things it reports on as news: AI models, products, tools, repositories, and launches by a company. Do not list a company that is only named for a deal, a lawsuit, funding or a person. Keep the story's headline and its link as the newsletter shows them. Take at most 24 names in all, the most specific first.
+
+   The radar wants news, not product placement. Leave out:
+   - Sponsored and advertised content: a slot marked "Sponsor", "Sponsored", "Together with", "Presented by", "Partner" or "Ad", a discount code, and an affiliate link.
+   - The sender's own products, features, plans, prices and integrations, when the sender is a company or a company's newsletter. For example, from Kilo leave out "Kilo Desktop" and "linked billing in Kilo". A vendor that promotes itself is not news.
+
+   A third party's release that such a newsletter reports is still news. For example, from "Microsoft's new MAI coding models are coming to Kilo", keep the MAI coding models. Count what you left out per newsletter.
 
 4. Look the names up, eight to a call, and read the leads of the last 14 days once:
 
@@ -135,7 +141,7 @@ Rules for mail:
    Give the GitHub breakout tables by category (general, ai, self-hosted) with each repo's stars a day and gain since yesterday, and a "What it is" column: one short line per repo, in the user's language, saying what the repo does. Write it from the repo's `description` in `report.json` (`breakout.repos` and `breakout.categories.<name>.repos`; the Markdown cuts it at 60 characters) and, for a repo with 📺, from what the channel said. Translate a description in another language. A repo with neither gets "no description", never a guess from its name. A 📺 after a repo links to the second a YouTube channel (GitHub Awesome) showed it; the report quotes what the channel said under the tables.
 2. The priority table, sorted prioritize, then watch, then skip, with one short reason per row from the fields above.
 3. The long-tails, the co-searched names and every caveat that applies.
-4. Newsletters: a table with the columns Name, Newsletter and date, Status, and Link, sorted radar lead, then newsletter only, then radar context only. Under it, one line per newsletter that you read but that named nothing new, and the number of mails that you skipped because they were not newsletters.
+4. Newsletters: a table with the columns Name, Newsletter and date, Status, and Link, sorted radar lead, then newsletter only, then radar context only. Under it, one line per newsletter that you read but that named nothing new, one line with the number of ads and own-product mentions you left out per newsletter (such as "Kilo: 4"), and the number of mails that you skipped because they were not newsletters.
 5. Two or three lines of advice. Search volume data runs about two months behind.
 
 Do not add names, rows, volumes or dates from your own knowledge. The output is what the radar saw, and what the newsletters said.

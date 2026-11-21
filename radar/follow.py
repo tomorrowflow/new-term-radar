@@ -45,10 +45,18 @@ _TAG = re.compile(r"<[^>]+>")
 SYSTEM = (
     "You read headlines from AI blogs, newsletters and YouTube channels for a radar that looks for new product "
     "names. For each item, list the NAMES of specific products, models, tools, libraries, companies, papers or "
-    "techniques it mentions: 'gemini 4 argon', 'mistral large 4', 'opus 5.5', 'granite switch 4.1.1', 'duet' "
+    "techniques it reports on: 'gemini 4 argon', 'mistral large 4', 'opus 5.5', 'granite switch 4.1.1', 'duet' "
     "(when the item is about a product called Duet). Not names: generic words and categories ('agents', "
     "'local ai', 'token spend'), people, the publication itself, or fragments of the headline. Keep a version "
     "with its name. Lowercase. Most items name zero to three things.\n"
+    "The radar wants news, not product placement. Leave out (1) anything sponsored or advertised: a sponsor "
+    "slot, 'sponsored by', 'thanks to X for sponsoring', 'together with', 'presented by', a discount code or an "
+    "affiliate link; and (2) when the source is a company or a company's newsletter or channel, its own products, "
+    "features, plans, prices and integrations, because a vendor promoting itself is not news (from the source "
+    "'Kilo', leave out 'kilo desktop' and 'kilo code'). A person's post about something they built is news "
+    "(the source '@swyx' launching a tool). "
+    "A third party's release that such an item reports is still a name ('mai coding models' in 'Microsoft's new "
+    "MAI coding models are coming to Kilo'). An item that is only an ad names nothing.\n"
     "Answer with JSON only, one object per item, in the same order: [{\"i\": 0, \"names\": [\"opus 5.5\"]}, ...]"
 )
 
@@ -114,7 +122,8 @@ def _names(items: list[dict], model: str) -> str:
         try:
             for start in range(0, len(items), CHUNK):
                 chunk = items[start:start + CHUNK]
-                user = json.dumps([{"i": i, "headline": it["title"], "start": it["text"][:200]} for i, it in enumerate(chunk)],
+                user = json.dumps([{"i": i, "source": it["source"], "headline": it["title"], "start": it["text"][:SNIPPET]}
+                                   for i, it in enumerate(chunk)],
                                   ensure_ascii=False)
                 for i, found in _parse(aisa.chat(model, SYSTEM, user, max_tokens=3000), len(chunk)).items():
                     chunk[i]["names"] = found
